@@ -1,0 +1,8 @@
+[package]
+name = "qubiq"
+version = "0.1.0"
+authors = ["Nebula Venus <nebulavenus@tuta.io>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.32"
