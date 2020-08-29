@@ -1,6 +1,8 @@
 use std::net::TcpListener;
+use std::collections::VecDeque;
 
 use crate::Player;
+use crate::packets::broadcast_message;
 
 pub struct Server {
     // server specific
@@ -9,6 +11,7 @@ pub struct Server {
 
     // game specific
     pub players: Vec<Player>,
+    chat: VecDeque<String>,
 }
 
 impl Server {
@@ -21,6 +24,7 @@ impl Server {
             running: true,
             listener,
             players: vec![],
+            chat: VecDeque::new(),
         })
     }
 
@@ -46,7 +50,16 @@ impl Server {
 
         // Progress players
         for (idx, player) in self.players.iter_mut().enumerate() {
-            player.tick(idx as u32)?;
+            // Tick player
+            player.tick(idx as u32, &mut self.chat)?;
+        }
+
+        // Broadcast messages
+        while let Some(msg) = self.chat.pop_back() {
+            for player in self.players.iter_mut() {
+                broadcast_message(player.stream.try_clone()?, msg.clone())?;
+                // TODO(nv): could panic on write operation if player's stream closed
+            }
         }
 
         Ok(())

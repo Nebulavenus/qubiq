@@ -1,7 +1,8 @@
 use std::io::{Read, Write, BufReader, BufWriter};
 use std::net::TcpStream;
+use std::collections::VecDeque;
 
-pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<()> {
+pub fn handle_player_identification(stream: TcpStream, player_name: &mut String) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream.try_clone()?);
 
@@ -14,6 +15,10 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<()> {
     println!("Username: {}", username);
     println!("Key: {}", verification_key);
     println!("Unused: {}", unused);
+
+    // Set player nickname
+    player_name.clone_from(&username.trim_end().to_string());
+    player_name.shrink_to_fit();
 
     // Send back information
     write_byte(&mut writer, 0x0)?;
@@ -41,9 +46,9 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<()> {
+pub fn handle_player_message(stream: TcpStream, player_nick: String, chat: &mut VecDeque<String>) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    //let mut writer = BufWriter::new(stream.try_clone()?);
 
     // Get message from client
     let _unused = read_byte(&mut reader)?;
@@ -56,10 +61,30 @@ pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<()> {
     // Sanitize string, if it contains & at end it crashes.
     if back_message.ends_with("&") { back_message.pop(); }
 
+    /*
     // Send it back
     write_byte(&mut writer, 0xd)?; // serverbound packet msg
     write_sbyte(&mut writer, 0)?; // Player ID
-    write_string(&mut writer, back_message)?;
+    write_string(&mut writer, back_message.clone())?;
+    writer.flush()?;
+    */
+
+    // Save it to broadcast it later
+    let mut formatted = format!("{}: ", player_nick);
+    formatted.push_str(&back_message);
+    println!("{}", formatted);
+    chat.push_back(formatted); // could overflow - not 64 length
+
+    Ok(())
+}
+
+pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<()> {
+    //let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    write_byte(&mut writer, 0xd)?;
+    write_sbyte(&mut writer, 0)?;
+    write_string(&mut writer, message)?;
     writer.flush()?;
     Ok(())
 }
