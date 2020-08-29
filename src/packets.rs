@@ -41,6 +41,29 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<()> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Get message from client
+    let _unused = read_byte(&mut reader)?;
+    let message = read_string(&mut reader)?;
+
+    println!("Client message: {}", &message);
+
+    // Replace % to be colored
+    let mut back_message = message.replace("%", "&");
+    // Sanitize string, if it contains & at end it crashes.
+    if back_message.ends_with("&") { back_message.pop(); }
+
+    // Send it back
+    write_byte(&mut writer, 0xd)?; // serverbound packet msg
+    write_sbyte(&mut writer, 0)?; // Player ID
+    write_string(&mut writer, back_message)?;
+    writer.flush()?;
+    Ok(())
+}
+
 pub struct Packet {
     packet_id: u8,
     packet_len: usize,
