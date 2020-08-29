@@ -1,10 +1,34 @@
 use std::net::{TcpListener, TcpStream};
 
+mod packets;
+
 mod clock;
 use clock::Clock;
 
 struct Player {
+    offline: bool,
     stream: TcpStream,
+}
+
+impl Player {
+    fn tick(&mut self, idx: u32) -> anyhow::Result<()> {
+        if self.offline { return Ok(()); }
+
+        println!("Player tick: {}", idx);
+
+        let packet_id = packets::read_byte(&mut self.stream)?;
+        println!("Received packet_id: {}", packet_id);
+        println!("");
+        match packet_id {
+            0x0 => packets::handle_player_identification(self.stream.try_clone()?)?,
+            //0xd => handle_player_message(self.stream.clone())?,
+            _ => (),
+        }
+
+        self.offline = true;
+
+        Ok(())
+    }
 }
 
 struct Server {
@@ -34,7 +58,7 @@ impl Server {
         for inc in self.listener.incoming() {
             let _ = match inc {
                 Ok(stream) => {
-                    let player = Player { stream };
+                    let player = Player { offline: false, stream };
                     self.players.push(player);
                 },
                 Err(e) => {
@@ -49,13 +73,18 @@ impl Server {
 
         // Progress world
 
+        // Progress players
+        for (idx, player) in self.players.iter_mut().enumerate() {
+            player.tick(idx as u32)?;
+        }
+
         Ok(())
     }
 }
 
 fn main() -> anyhow::Result<()> {
 
-    let mut clock = Clock::new(50);
+    let mut clock = Clock::new(500);
     let mut server = Server::new()?;
 
     println!("Started server!");
