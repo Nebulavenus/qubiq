@@ -15,8 +15,24 @@ impl Player {
         if self.offline { return Ok(()); }
 
         println!("Player tick: {}", idx);
+        
+        let mut packet_id: u8 = 0xFF;
+        match packets::read_byte(&mut self.stream) {
+            Ok(v) => packet_id = v,
+            Err(e) => {
+                match e.downcast::<std::io::Error>() {
+                    Ok(er) => {
+                        if er.kind() == std::io::ErrorKind::WouldBlock {
+                            // Just return function and don't handle incoming packets to avoid panic
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => { panic!(e); }
+                }
+            }
+        }
 
-        let packet_id = packets::read_byte(&mut self.stream)?;
+        //let packet_id = packets::read_byte(&mut self.stream)?;
         println!("Received packet_id: {}", packet_id);
         println!("");
         match packet_id {
@@ -25,7 +41,7 @@ impl Player {
             _ => (),
         }
 
-        self.offline = true;
+        //self.offline = true;
 
         Ok(())
     }
