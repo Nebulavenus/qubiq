@@ -23,6 +23,7 @@ pub const CLIENT_BLOCK: u8 = 0x05;
 pub fn handle_player_identification(
     stream: TcpStream,
     player_name: &mut String,
+    world: &mut crate::World,
 ) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream.try_clone()?);
@@ -61,16 +62,8 @@ pub fn handle_player_identification(
     write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
 
-    // Level initialize
-    write_byte(&mut writer, SERVER_LEVEL_INIT)?;
-    writer.flush()?;
-
-    // Level finalize
-    write_byte(&mut writer, SERVER_LEVEL_FINAL)?;
-    write_short(&mut writer, 0)?;
-    write_short(&mut writer, 0)?;
-    write_short(&mut writer, 0)?;
-    writer.flush()?;
+    // Send world information
+    world.send_world(stream.try_clone()?)?;
 
     Ok(())
 }
@@ -101,6 +94,58 @@ pub fn handle_player_message(
     formatted.push_str(&back_message);
     println!("{}", formatted);
     chat.push_back(formatted); // could overflow - not 64 length
+
+    Ok(())
+}
+
+pub fn level_init(stream: TcpStream) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Level initialize
+    write_byte(&mut writer, SERVER_LEVEL_INIT)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
+pub fn level_chunk_data(
+    stream: TcpStream,
+    length: i16,
+    data: &[u8],
+    percentage: u8,
+) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Basic stuff
+    write_byte(&mut writer, SERVER_LEVEL_DATA)?;
+    write_short(&mut writer, length)?; // chunk length
+
+    // Chunk must be fixed size of 1024 bytes, fill the rest
+    writer.write(data)?;
+    for _i in 0..1024 - length {
+        write_byte(&mut writer, 0x00)?;
+    }
+
+    write_byte(&mut writer, percentage)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
+pub fn level_finalize(
+    stream: TcpStream,
+    width: i16,
+    height: i16,
+    length: i16,
+) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Level finalize
+    write_byte(&mut writer, SERVER_LEVEL_FINAL)?;
+    write_short(&mut writer, width)?;
+    write_short(&mut writer, height)?;
+    write_short(&mut writer, length)?;
+    writer.flush()?;
 
     Ok(())
 }
@@ -175,7 +220,7 @@ fn write_sbyte<W: Write>(writer: &mut W, val: i8) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_short<W: Write>(writer: &mut W, val: i16) -> anyhow::Result<()> {
+pub fn write_short<W: Write>(writer: &mut W, val: i16) -> anyhow::Result<()> {
     writer.write(&val.to_be_bytes())?;
     Ok(())
 }

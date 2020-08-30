@@ -3,22 +3,34 @@ use std::collections::VecDeque;
 use std::net::TcpStream;
 
 pub struct Player {
-    name: String,
-    pub active: bool,
     pub stream: TcpStream,
+    pub active: bool,
+
+    name: String,
+    pos_x: i16,
+    pos_y: i16,
+    pos_z: i16,
 }
 
 impl Player {
     pub fn new(stream: TcpStream) -> anyhow::Result<Self> {
         Ok(Player {
-            name: String::from("Unknown"),
-            active: true,
             stream,
+            active: true,
+            name: String::from("Unknown"),
+            pos_x: 0,
+            pos_y: 0,
+            pos_z: 0,
         })
     }
 
     // TODO(nv): add reference to server shared state? instead passing argument
-    pub fn tick(&mut self, idx: u32, chat: &mut VecDeque<String>) -> anyhow::Result<()> {
+    pub fn tick(
+        &mut self,
+        idx: u32,
+        chat: &mut VecDeque<String>,
+        world: &mut crate::World,
+    ) -> anyhow::Result<()> {
         println!("Player tick: {}", idx);
 
         let mut packet_id = None;
@@ -45,7 +57,8 @@ impl Player {
             println!("");
             match packet_id {
                 CS_IDENTIFICATION => {
-                    handle_player_identification(self.stream.try_clone()?, &mut self.name)?
+                    // TODO(nv): make it better?? too much arguments in function
+                    handle_player_identification(self.stream.try_clone()?, &mut self.name, world)?
                 }
                 CS_MESSAGE => {
                     handle_player_message(self.stream.try_clone()?, self.name.clone(), chat)?
@@ -62,17 +75,14 @@ impl Player {
     pub fn check_liveness(&mut self) -> anyhow::Result<()> {
         match ping(self.stream.try_clone()?) {
             Ok(_) => {}
-            Err(e) => {
-                match e.downcast::<std::io::Error>() {
-                    Ok(err) => {
-                        if err.kind() == std::io::ErrorKind::ConnectionAborted {
-                            self.active = false;
-                        }
-                        //println!("ERRR{:?}", err.kind());
+            Err(e) => match e.downcast::<std::io::Error>() {
+                Ok(err) => {
+                    if err.kind() == std::io::ErrorKind::ConnectionAborted {
+                        self.active = false;
                     }
-                    Err(pe) => panic!(pe),
                 }
-            }
+                Err(pe) => panic!(pe),
+            },
         }
         Ok(())
     }

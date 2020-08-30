@@ -3,6 +3,7 @@ use std::net::TcpListener;
 
 use crate::packets::broadcast_message;
 use crate::Player;
+use crate::World;
 
 pub struct Server {
     // server specific
@@ -12,6 +13,7 @@ pub struct Server {
     // game specific
     pub players: Vec<Player>,
     chat: VecDeque<String>,
+    world: World,
 }
 
 impl Server {
@@ -20,11 +22,15 @@ impl Server {
         let listener = TcpListener::bind(address)?;
         listener.set_nonblocking(true)?;
 
+        // TODO(nv): world type generation from config or load it
+        let world = World::new(10, 10, 10);
+
         Ok(Server {
             running: true,
             listener,
             players: vec![],
             chat: VecDeque::new(),
+            world,
         })
     }
 
@@ -46,7 +52,8 @@ impl Server {
             };
         }
 
-        // Progress world
+        // TODO(nv): Progress world & physics
+        //self.world.tick()?;
 
         // Progress players
         for (idx, player) in self.players.iter_mut().enumerate() {
@@ -55,7 +62,7 @@ impl Server {
 
             // Tick player if he is alive
             if player.active {
-                player.tick(idx as u32, &mut self.chat)?;
+                player.tick(idx as u32, &mut self.chat, &mut self.world)?;
             }
         }
 
