@@ -1,8 +1,7 @@
-use std::collections::VecDeque;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::TcpStream;
 
-const PROTOCOL_VERSION: u8 = 0x7;
+pub const PROTOCOL_VERSION: u8 = 0x7;
 
 pub const SERVER_LEVEL_INIT: u8 = 0x02;
 pub const SERVER_LEVEL_DATA: u8 = 0x03;
@@ -20,13 +19,33 @@ pub const CS_MESSAGE: u8 = 0x0d;
 
 pub const CLIENT_BLOCK: u8 = 0x05;
 
-pub fn handle_player_identification(
-    stream: TcpStream,
-    player_name: &mut String,
-    world: &mut crate::World,
-) -> anyhow::Result<()> {
+pub enum ClientPacket {
+    PlayerAuth {
+        protocol_version: u8,
+        username: String,
+        verification_key: String,
+        unused: u8,
+    },
+    Message(String),
+    PositionAndOrientation {
+        player_id: u8,
+        pos_x: i16,
+        pos_y: i16,
+        pos_z: i16,
+        yaw: u8,
+        pitch: u8,
+    },
+    SetBlock {
+        coord_x: i16,
+        coord_y: i16,
+        coord_z: i16,
+        mode: u8,
+        block_type: u8,
+    },
+}
+
+pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream.try_clone()?);
 
     // Read identification
     let protocol_version = read_byte(&mut reader)?;
@@ -38,41 +57,15 @@ pub fn handle_player_identification(
     println!("Key: {}", verification_key);
     println!("Unused: {}", unused);
 
-    // TODO: handle invalid protocol version
-    if protocol_version != PROTOCOL_VERSION {
-        println!(
-            "Protocol version mismatch! Client is {} - Server is {}",
-            protocol_version, PROTOCOL_VERSION
-        );
-    }
-
-    // Set player nickname
-    player_name.clone_from(&username.trim_end().to_string());
-    player_name.shrink_to_fit();
-
-    // Send back information
-    write_byte(&mut writer, CS_IDENTIFICATION)?;
-    write_byte(&mut writer, protocol_version)?;
-    write_string(&mut writer, format!("My Cool Server"))?;
-    write_string(&mut writer, format!("Welcome To Server!"))?;
-    write_byte(&mut writer, 0x64)?; // is player op(0x64) or not(0x0)
-    writer.flush()?;
-
-    // Send ping
-    write_byte(&mut writer, CS_PING_PONG)?;
-    writer.flush()?;
-
-    // Send world information
-    world.send_world(stream.try_clone()?)?;
-
-    Ok(())
+    Ok(ClientPacket::PlayerAuth {
+        protocol_version,
+        username,
+        verification_key,
+        unused,
+    })
 }
 
-pub fn handle_player_message(
-    stream: TcpStream,
-    player_nick: String,
-    chat: &mut VecDeque<String>,
-) -> anyhow::Result<()> {
+pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     let mut reader = BufReader::new(stream.try_clone()?);
     //let mut writer = BufWriter::new(stream.try_clone()?);
 
@@ -89,11 +82,86 @@ pub fn handle_player_message(
         back_message.pop();
     }
 
-    // Save it to broadcast it later
-    let mut formatted = format!("{}: ", player_nick);
-    formatted.push_str(&back_message);
-    println!("{}", formatted);
-    chat.push_back(formatted); // could overflow - not 64 length
+    Ok(ClientPacket::Message(back_message))
+}
+
+pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+
+    let coord_x = read_short(&mut reader)?;
+    let coord_y = read_short(&mut reader)?;
+    let coord_z = read_short(&mut reader)?;
+    let mode = read_byte(&mut reader)?;
+    let block_type = read_byte(&mut reader)?;
+
+    Ok(ClientPacket::SetBlock {
+        coord_x,
+        coord_y,
+        coord_z,
+        mode,
+        block_type,
+    })
+}
+
+pub fn handle_position_and_orientation(stream: TcpStream) -> anyhow::Result<ClientPacket> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    //let mut writer = BufWriter::new(stream.try_clone()?);
+
+    let player_id = read_byte(&mut reader)?; // should always be 255
+    if player_id != 255 {
+        println!("Something wrong with player id in position?");
+    }
+    let pos_x = read_short(&mut reader)?;
+    let pos_y = read_short(&mut reader)?;
+    let pos_z = read_short(&mut reader)?;
+    let yaw = read_byte(&mut reader)?;
+    let pitch = read_byte(&mut reader)?;
+
+    Ok(ClientPacket::PositionAndOrientation {
+        player_id,
+        pos_x,
+        pos_y,
+        pos_z,
+        yaw,
+        pitch,
+    })
+}
+
+pub fn server_info(stream: TcpStream) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Send back information
+    write_byte(&mut writer, CS_IDENTIFICATION)?;
+    write_byte(&mut writer, PROTOCOL_VERSION)?;
+    write_string(&mut writer, format!("My Cool Server"))?;
+    write_string(&mut writer, format!("Welcome To Server!"))?;
+    write_byte(&mut writer, 0x64)?; // is player op(0x64) or not(0x0)
+    writer.flush()?;
+
+    Ok(())
+}
+
+pub fn spawn_player(
+    stream: TcpStream,
+    player_id: i8,
+    player_name: String,
+    pos_x: i16,
+    pos_y: i16,
+    pos_z: i16,
+    yaw: u8,
+    pitch: u8,
+) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    write_byte(&mut writer, SERVER_SPAWN)?;
+    write_sbyte(&mut writer, player_id)?;
+    write_string(&mut writer, player_name)?;
+    write_short(&mut writer, pos_x)?;
+    write_short(&mut writer, pos_y)?;
+    write_short(&mut writer, pos_z)?;
+    write_byte(&mut writer, yaw)?;
+    write_byte(&mut writer, pitch)?;
+    writer.flush()?;
 
     Ok(())
 }
@@ -153,7 +221,6 @@ pub fn level_finalize(
 pub fn ping(stream: TcpStream) -> anyhow::Result<()> {
     let mut writer = BufWriter::new(stream.try_clone()?);
 
-    // Send ping
     write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
     Ok(())

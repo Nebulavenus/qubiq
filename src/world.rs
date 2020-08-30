@@ -69,6 +69,13 @@ impl World {
         }
     }
 
+    pub fn spawning_center(&mut self) -> (i16, i16, i16) {
+        let x = self.width / 2;
+        let y = self.height / 2;
+        let z = self.length / 2;
+        (x, y, z)
+    }
+
     pub fn gzip_world(&mut self) -> anyhow::Result<Vec<u8>> {
         let mut gzipper = GzEncoder::new(Vec::new(), flate2::Compression::default());
         let world_size = (self.width * self.height * self.length) as i32;

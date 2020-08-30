@@ -69,6 +69,8 @@ impl Server {
         // Delete unactive
         self.players.retain(|p| p.active == true);
 
+        println!("CHAT MSG: {}", self.chat.len());
+
         // Broadcast messages
         while let Some(msg) = self.chat.pop_back() {
             for player in self.players.iter_mut() {
