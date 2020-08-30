@@ -1,8 +1,8 @@
-use std::net::TcpListener;
 use std::collections::VecDeque;
+use std::net::TcpListener;
 
-use crate::Player;
 use crate::packets::broadcast_message;
+use crate::Player;
 
 pub struct Server {
     // server specific
@@ -35,14 +35,14 @@ impl Server {
                 Ok(stream) => {
                     let player = Player::new(stream)?;
                     self.players.push(player);
-                },
+                }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
                         break; // just to out of blocking-forloop to process ticking server
                     } else {
                         panic!(e);
                     }
-                },
+                }
             };
         }
 
@@ -50,9 +50,17 @@ impl Server {
 
         // Progress players
         for (idx, player) in self.players.iter_mut().enumerate() {
-            // Tick player
-            player.tick(idx as u32, &mut self.chat)?;
+            // Send ping to determine if socket is open
+            player.check_liveness()?;
+
+            // Tick player if he is alive
+            if player.active {
+                player.tick(idx as u32, &mut self.chat)?;
+            }
         }
+
+        // Delete unactive
+        self.players.retain(|p| p.active == true);
 
         // Broadcast messages
         while let Some(msg) = self.chat.pop_back() {

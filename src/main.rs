@@ -10,7 +10,6 @@ mod server;
 use server::Server;
 
 fn main() -> anyhow::Result<()> {
-
     let mut clock = Clock::new(500);
     let mut server = Server::new()?;
 
@@ -18,7 +17,9 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         // Exit if not running
-        if !server.running { break; }
+        if !server.running {
+            break;
+        }
 
         // Start clocker
         clock.start();

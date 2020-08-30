@@ -1,5 +1,5 @@
-use std::time::{SystemTime, Duration};
 use std::thread;
+use std::time::{Duration, SystemTime};
 
 /// Keeps track of the time each tick takes and regulates the server ticks per second (TPS).
 pub struct Clock {
@@ -29,7 +29,8 @@ impl Clock {
     pub fn finish_tick(&mut self) {
         match self.time.elapsed() {
             Ok(duration) => {
-                self.micros_ema = (99_f32 * self.micros_ema + duration.as_micros() as f32) / 100_f32;
+                self.micros_ema =
+                    (99_f32 * self.micros_ema + duration.as_micros() as f32) / 100_f32;
 
                 if duration.as_millis() < self.full_tick_millis {
                     thread::sleep(self.full_tick - duration);

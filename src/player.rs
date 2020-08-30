@@ -1,10 +1,10 @@
-use std::net::TcpStream;
 use crate::packets::*;
 use std::collections::VecDeque;
+use std::net::TcpStream;
 
 pub struct Player {
     name: String,
-    offline: bool,
+    pub active: bool,
     pub stream: TcpStream,
 }
 
@@ -12,20 +12,18 @@ impl Player {
     pub fn new(stream: TcpStream) -> anyhow::Result<Self> {
         Ok(Player {
             name: String::from("Unknown"),
-            offline: false,
+            active: true,
             stream,
         })
     }
 
     // TODO(nv): add reference to server shared state? instead passing argument
     pub fn tick(&mut self, idx: u32, chat: &mut VecDeque<String>) -> anyhow::Result<()> {
-        if self.offline { return Ok(()); }
-
         println!("Player tick: {}", idx);
-        
-        let mut packet_id: u8 = 0xFF;
+
+        let mut packet_id = None;
         match read_byte(&mut self.stream) {
-            Ok(v) => packet_id = v,
+            Ok(v) => packet_id = Some(v),
             Err(e) => {
                 match e.downcast::<std::io::Error>() {
                     Ok(er) => {
@@ -34,22 +32,53 @@ impl Player {
                             return Ok(());
                         }
                     }
-                    Err(e) => { panic!(e); }
+                    Err(e) => {
+                        panic!(e);
+                    }
                 }
             }
         }
 
-        // TODO(nv): handle send back parsed enums to handle state here instead.
-        println!("Received packet_id: {}", packet_id);
-        println!("");
-        match packet_id {
-            0x0 => handle_player_identification(self.stream.try_clone()?, &mut self.name)?,
-            0xd => handle_player_message(self.stream.try_clone()?, self.name.clone(), chat)?,
-            _ => (),
+        if let Some(packet_id) = packet_id {
+            // TODO(nv): handle send back parsed enums to handle state here instead.
+            println!("Received packet_id: {}", packet_id);
+            println!("");
+            match packet_id {
+                CS_IDENTIFICATION => {
+                    handle_player_identification(self.stream.try_clone()?, &mut self.name)?
+                }
+                CS_MESSAGE => {
+                    handle_player_message(self.stream.try_clone()?, self.name.clone(), chat)?
+                }
+                //CS_POSITION_ORIENTATION =>
+                CS_PING_PONG => println!("Player pong"), // never returns - just to check if i can write to socket
+                _ => (),
+            }
         }
 
-        //self.offline = true;
+        Ok(())
+    }
 
+    pub fn check_liveness(&mut self) -> anyhow::Result<()> {
+        match ping(self.stream.try_clone()?) {
+            Ok(_) => {}
+            Err(e) => {
+                match e.downcast::<std::io::Error>() {
+                    Ok(err) => {
+                        if err.kind() == std::io::ErrorKind::ConnectionAborted {
+                            self.active = false;
+                        }
+                        //println!("ERRR{:?}", err.kind());
+                    }
+                    Err(pe) => panic!(pe),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn disconnect(&mut self, reason: String) -> anyhow::Result<()> {
+        kick(self.stream.try_clone()?, reason)?;
         Ok(())
     }
 }

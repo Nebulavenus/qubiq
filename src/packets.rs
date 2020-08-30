@@ -1,8 +1,29 @@
-use std::io::{Read, Write, BufReader, BufWriter};
-use std::net::TcpStream;
 use std::collections::VecDeque;
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::net::TcpStream;
 
-pub fn handle_player_identification(stream: TcpStream, player_name: &mut String) -> anyhow::Result<()> {
+const PROTOCOL_VERSION: u8 = 0x7;
+
+pub const SERVER_LEVEL_INIT: u8 = 0x02;
+pub const SERVER_LEVEL_DATA: u8 = 0x03;
+pub const SERVER_LEVEL_FINAL: u8 = 0x04;
+pub const SERVER_BLOCK: u8 = 0x06;
+pub const SERVER_SPAWN: u8 = 0x07;
+pub const SERVER_DESPAWN: u8 = 0x0c;
+pub const SERVER_KICK: u8 = 0x0e;
+pub const SERVER_USER_TYPE: u8 = 0x0f;
+
+pub const CS_IDENTIFICATION: u8 = 0x00;
+pub const CS_PING_PONG: u8 = 0x01;
+pub const CS_POSITION_ORIENTATION: u8 = 0x08;
+pub const CS_MESSAGE: u8 = 0x0d;
+
+pub const CLIENT_BLOCK: u8 = 0x05;
+
+pub fn handle_player_identification(
+    stream: TcpStream,
+    player_name: &mut String,
+) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream.try_clone()?);
 
@@ -16,12 +37,20 @@ pub fn handle_player_identification(stream: TcpStream, player_name: &mut String)
     println!("Key: {}", verification_key);
     println!("Unused: {}", unused);
 
+    // TODO: handle invalid protocol version
+    if protocol_version != PROTOCOL_VERSION {
+        println!(
+            "Protocol version mismatch! Client is {} - Server is {}",
+            protocol_version, PROTOCOL_VERSION
+        );
+    }
+
     // Set player nickname
     player_name.clone_from(&username.trim_end().to_string());
     player_name.shrink_to_fit();
 
     // Send back information
-    write_byte(&mut writer, 0x0)?;
+    write_byte(&mut writer, CS_IDENTIFICATION)?;
     write_byte(&mut writer, protocol_version)?;
     write_string(&mut writer, format!("My Cool Server"))?;
     write_string(&mut writer, format!("Welcome To Server!"))?;
@@ -29,15 +58,15 @@ pub fn handle_player_identification(stream: TcpStream, player_name: &mut String)
     writer.flush()?;
 
     // Send ping
-    write_byte(&mut writer, 0x01)?;
+    write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
 
     // Level initialize
-    write_byte(&mut writer, 0x02)?;
+    write_byte(&mut writer, SERVER_LEVEL_INIT)?;
     writer.flush()?;
 
     // Level finalize
-    write_byte(&mut writer, 0x04)?;
+    write_byte(&mut writer, SERVER_LEVEL_FINAL)?;
     write_short(&mut writer, 0)?;
     write_short(&mut writer, 0)?;
     write_short(&mut writer, 0)?;
@@ -46,7 +75,11 @@ pub fn handle_player_identification(stream: TcpStream, player_name: &mut String)
     Ok(())
 }
 
-pub fn handle_player_message(stream: TcpStream, player_nick: String, chat: &mut VecDeque<String>) -> anyhow::Result<()> {
+pub fn handle_player_message(
+    stream: TcpStream,
+    player_nick: String,
+    chat: &mut VecDeque<String>,
+) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     //let mut writer = BufWriter::new(stream.try_clone()?);
 
@@ -59,15 +92,9 @@ pub fn handle_player_message(stream: TcpStream, player_nick: String, chat: &mut 
     // Replace % to be colored
     let mut back_message = message.replace("%", "&");
     // Sanitize string, if it contains & at end it crashes.
-    if back_message.ends_with("&") { back_message.pop(); }
-
-    /*
-    // Send it back
-    write_byte(&mut writer, 0xd)?; // serverbound packet msg
-    write_sbyte(&mut writer, 0)?; // Player ID
-    write_string(&mut writer, back_message.clone())?;
-    writer.flush()?;
-    */
+    if back_message.ends_with("&") {
+        back_message.pop();
+    }
 
     // Save it to broadcast it later
     let mut formatted = format!("{}: ", player_nick);
@@ -78,11 +105,29 @@ pub fn handle_player_message(stream: TcpStream, player_nick: String, chat: &mut 
     Ok(())
 }
 
+pub fn ping(stream: TcpStream) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    // Send ping
+    write_byte(&mut writer, CS_PING_PONG)?;
+    writer.flush()?;
+    Ok(())
+}
+
+pub fn kick(stream: TcpStream, message: String) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    write_byte(&mut writer, SERVER_KICK)?;
+    write_string(&mut writer, message)?;
+    writer.flush()?;
+    Ok(())
+}
+
 pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<()> {
     //let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream.try_clone()?);
 
-    write_byte(&mut writer, 0xd)?;
+    write_byte(&mut writer, CS_MESSAGE)?;
     write_sbyte(&mut writer, 0)?;
     write_string(&mut writer, message)?;
     writer.flush()?;
@@ -92,7 +137,7 @@ pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<(
 pub struct Packet {
     packet_id: u8,
     packet_len: usize,
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 pub fn read_byte<R: Read>(reader: &mut R) -> anyhow::Result<u8> {
