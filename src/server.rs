@@ -12,8 +12,8 @@ pub struct Server {
 
     // game specific
     pub players: Vec<Player>,
-    chat: VecDeque<String>,
-    world: World,
+    pub chat: VecDeque<String>,
+    pub world: World,
 }
 
 impl Server {
@@ -39,8 +39,11 @@ impl Server {
         for inc in self.listener.incoming() {
             let _ = match inc {
                 Ok(stream) => {
-                    let player = Player::new(stream)?;
+                    // TODO(nv): increment pid
+                    let player = Player::new(stream, 0)?;
                     self.players.push(player);
+
+                    // TODO(nv): assign new pid, spawn player for other players
                 }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -56,13 +59,14 @@ impl Server {
         //self.world.tick()?;
 
         // Progress players
-        for (idx, player) in self.players.iter_mut().enumerate() {
+        for player in self.players.iter_mut() {
             // Send ping to determine if socket is open
             player.check_liveness()?;
 
             // Tick player if he is alive
             if player.active {
-                player.tick(idx as u32, &mut self.chat, &mut self.world)?;
+                //let players = &mut self.players;
+                player.tick(&mut self.players, &mut self.chat, &mut self.world)?;
             }
         }
 

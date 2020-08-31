@@ -9,35 +9,38 @@ pub struct Player {
     pub stream: TcpStream,
     pub active: bool,
 
+    pid: i8,
     name: String,
     position: (i16, i16, i16),
     yaw: u8,
     pitch: u8,
     operator: u8,
+    authed: bool,
 }
 
 impl Player {
-    pub fn new(stream: TcpStream) -> anyhow::Result<Self> {
+    pub fn new(stream: TcpStream, pid: i8) -> anyhow::Result<Self> {
         Ok(Player {
             stream,
             active: true,
+            pid,
             name: String::from("Unknown"),
             position: (0, 0, 0),
             yaw: 45u8,
             pitch: 45u8,
             operator: 0,
+            authed: false,
         })
     }
 
     // TODO(nv): add reference to server shared state? instead passing argument
     pub fn tick(
         &mut self,
-        idx: u32,
+        players: &mut Vec<Player>,
         chat: &mut VecDeque<String>,
         world: &mut crate::World,
     ) -> anyhow::Result<()> {
-        println!("Player tick: {}", idx);
-
+        // First try to read first opcode
         let mut packet_id = None;
         match packets::read_byte(&mut self.stream) {
             Ok(v) => packet_id = Some(v),
@@ -70,15 +73,14 @@ impl Player {
                             verification_key,
                             unused,
                         } => {
-                            // TODO: handle invalid protocol version
                             if protocol_version != crate::packets::PROTOCOL_VERSION {
-                                println!(
-                                    "Protocol version mismatch! Client is {} - Server is {}",
+                                let msg = format!(
+                                    "Protocol version mismatch! Your: {} - Server: {}",
                                     protocol_version,
-                                    crate::packets::PROTOCOL_VERSION
+                                    packets::PROTOCOL_VERSION
                                 );
-
-                                // TODO(nv): kick user
+                                self.disconnect(msg)?;
+                                return Ok(());
                             }
 
                             // Set player nickname
@@ -91,6 +93,9 @@ impl Player {
                             // TODO(nv): set operator type
                             self.operator = 0x64;
 
+                            // Authed
+                            self.authed = true;
+
                             // Send server info after successful auth
                             packets::server_info(
                                 self.stream.try_clone()?,
@@ -102,19 +107,31 @@ impl Player {
                             // Send world information
                             world.send_world(self.stream.try_clone()?)?;
 
+                            // TODO(nv): move this out?
+                            // TODO(nv): send after new player connected, for now probably redundant
+                            // Send spawn position
                             let world_center = world.spawning_center();
-                            /*
-                            spawn_player(
+                            packets::spawn_player(
                                 self.stream.try_clone()?,
-                                -1,
-                                self.name.clone(),
-                                world_center.0,
-                                world_center.1,
-                                world_center.2,
-                                45,
-                                45,
+                                ServerPacket::SpawnPlayer {
+                                    pid: -1, // always self
+                                    username: self.name.clone(),
+                                    position: world_center,
+                                    yaw: 45,
+                                    pitch: 45,
+                                },
                             )?;
-                            */
+                            // Another player
+                            packets::spawn_player(
+                                self.stream.try_clone()?,
+                                ServerPacket::SpawnPlayer {
+                                    pid: 1, // always self
+                                    username: self.name.clone(),
+                                    position: world_center,
+                                    yaw: 45,
+                                    pitch: 45,
+                                },
+                            )?;
                         }
                         _ => unreachable!(),
                     }
@@ -131,6 +148,34 @@ impl Player {
                             self.position = position;
                             self.yaw = yaw;
                             self.pitch = pitch;
+
+                            // First packet to myself
+                            packets::player_position_update(
+                                self.stream.try_clone()?,
+                                ServerPacket::PositionAndOrientation {
+                                    pid: -1, // myself
+                                    position: self.position,
+                                    yaw: self.yaw,
+                                    pitch: self.pitch,
+                                },
+                            )?;
+
+                            // Rebroadcast to other players
+                            for player in players {
+                                if player.pid == self.pid {
+                                    continue;
+                                }
+
+                                packets::player_position_update(
+                                    player.stream.try_clone()?,
+                                    ServerPacket::PositionAndOrientation {
+                                        pid: player.pid,
+                                        position: player.position,
+                                        yaw: player.yaw,
+                                        pitch: player.pitch,
+                                    },
+                                )?;
+                            }
                         }
                         _ => unreachable!(),
                     }

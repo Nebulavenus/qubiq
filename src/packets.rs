@@ -139,6 +139,12 @@ pub enum ServerPacket<'a> {
         height: i16,
         length: i16,
     },
+    PositionAndOrientation {
+        pid: i8,
+        position: (i16, i16, i16),
+        yaw: u8,
+        pitch: u8,
+    },
 }
 
 pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
@@ -151,6 +157,29 @@ pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> 
         write_string(&mut writer, format!("My Cool Server"))?;
         write_string(&mut writer, format!("Welcome To Server!"))?;
         write_byte(&mut writer, operator)?; // is player op(0x64) or not(0x0)
+        writer.flush()?;
+    }
+
+    Ok(())
+}
+
+pub fn player_position_update(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    if let ServerPacket::PositionAndOrientation {
+        pid,
+        position,
+        yaw,
+        pitch,
+    } = data
+    {
+        write_byte(&mut writer, CS_POSITION_ORIENTATION)?;
+        write_sbyte(&mut writer, pid)?;
+        write_short(&mut writer, position.0)?;
+        write_short(&mut writer, position.1)?;
+        write_short(&mut writer, position.2)?;
+        write_byte(&mut writer, yaw)?;
+        write_byte(&mut writer, pitch)?;
         writer.flush()?;
     }
 
