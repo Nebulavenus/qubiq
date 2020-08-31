@@ -1,3 +1,4 @@
+use crate::packets::{self, ServerPacket};
 use flate2::write::GzEncoder;
 use std::io::Write;
 use std::net::TcpStream;
@@ -88,7 +89,7 @@ impl World {
     // TODO(nv): move outside of world?
     pub fn send_world(&mut self, stream: TcpStream) -> anyhow::Result<()> {
         // Init level transmition
-        crate::packets::level_init(stream.try_clone()?)?;
+        packets::level_init(stream.try_clone()?, ServerPacket::LevelInit)?;
 
         // Algorithm to send bytes in chunk
         let gblocks = self.gzip_world()?;
@@ -103,11 +104,13 @@ impl World {
                 remaining_bytes
             };
 
-            crate::packets::level_chunk_data(
+            packets::level_chunk_data(
                 stream.try_clone()?,
-                count as i16,
-                &gblocks[current_bytes..count],
-                percentage,
+                ServerPacket::LevelData {
+                    length: count as i16,
+                    data: &gblocks[current_bytes..count],
+                    percentage,
+                },
             )?;
 
             current_bytes += count;
@@ -116,7 +119,14 @@ impl World {
         }
 
         // Finalize transmition
-        crate::packets::level_finalize(stream.try_clone()?, self.width, self.height, self.length)?;
+        packets::level_finalize(
+            stream.try_clone()?,
+            ServerPacket::LevelFinal {
+                width: self.width,
+                height: self.height,
+                length: self.length,
+            },
+        )?;
 
         Ok(())
     }

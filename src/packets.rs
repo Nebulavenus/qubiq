@@ -3,14 +3,14 @@ use std::net::TcpStream;
 
 pub const PROTOCOL_VERSION: u8 = 0x7;
 
-pub const SERVER_LEVEL_INIT: u8 = 0x02;
-pub const SERVER_LEVEL_DATA: u8 = 0x03;
-pub const SERVER_LEVEL_FINAL: u8 = 0x04;
-pub const SERVER_BLOCK: u8 = 0x06;
-pub const SERVER_SPAWN: u8 = 0x07;
-pub const SERVER_DESPAWN: u8 = 0x0c;
-pub const SERVER_KICK: u8 = 0x0e;
-pub const SERVER_USER_TYPE: u8 = 0x0f;
+const SERVER_LEVEL_INIT: u8 = 0x02;
+const SERVER_LEVEL_DATA: u8 = 0x03;
+const SERVER_LEVEL_FINAL: u8 = 0x04;
+const SERVER_BLOCK: u8 = 0x06;
+const SERVER_SPAWN: u8 = 0x07;
+const SERVER_DESPAWN: u8 = 0x0c;
+const SERVER_KICK: u8 = 0x0e;
+const SERVER_USER_TYPE: u8 = 0x0f;
 
 pub const CS_IDENTIFICATION: u8 = 0x00;
 pub const CS_PING_PONG: u8 = 0x01;
@@ -28,17 +28,13 @@ pub enum ClientPacket {
     },
     Message(String),
     PositionAndOrientation {
-        player_id: u8,
-        pos_x: i16,
-        pos_y: i16,
-        pos_z: i16,
+        pid: u8,
+        position: (i16, i16, i16),
         yaw: u8,
         pitch: u8,
     },
     SetBlock {
-        coord_x: i16,
-        coord_y: i16,
-        coord_z: i16,
+        coords: (i16, i16, i16),
         mode: u8,
         block_type: u8,
     },
@@ -67,7 +63,6 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientP
 
 pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    //let mut writer = BufWriter::new(stream.try_clone()?);
 
     // Get message from client
     let _unused = read_byte(&mut reader)?;
@@ -88,16 +83,14 @@ pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> 
 pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     let mut reader = BufReader::new(stream.try_clone()?);
 
-    let coord_x = read_short(&mut reader)?;
-    let coord_y = read_short(&mut reader)?;
-    let coord_z = read_short(&mut reader)?;
+    let x = read_short(&mut reader)?;
+    let y = read_short(&mut reader)?;
+    let z = read_short(&mut reader)?;
     let mode = read_byte(&mut reader)?;
     let block_type = read_byte(&mut reader)?;
 
     Ok(ClientPacket::SetBlock {
-        coord_x,
-        coord_y,
-        coord_z,
+        coords: (x, y, z),
         mode,
         block_type,
     })
@@ -105,115 +98,148 @@ pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
 
 pub fn handle_position_and_orientation(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    //let mut writer = BufWriter::new(stream.try_clone()?);
 
-    let player_id = read_byte(&mut reader)?; // should always be 255
-    if player_id != 255 {
+    let pid = read_byte(&mut reader)?; // should always be 255
+    if pid != 255 {
         println!("Something wrong with player id in position?");
     }
-    let pos_x = read_short(&mut reader)?;
-    let pos_y = read_short(&mut reader)?;
-    let pos_z = read_short(&mut reader)?;
+    let x = read_short(&mut reader)?;
+    let y = read_short(&mut reader)?;
+    let z = read_short(&mut reader)?;
     let yaw = read_byte(&mut reader)?;
     let pitch = read_byte(&mut reader)?;
 
     Ok(ClientPacket::PositionAndOrientation {
-        player_id,
-        pos_x,
-        pos_y,
-        pos_z,
+        pid,
+        position: (x, y, z),
         yaw,
         pitch,
     })
 }
 
-pub fn server_info(stream: TcpStream) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
-
-    // Send back information
-    write_byte(&mut writer, CS_IDENTIFICATION)?;
-    write_byte(&mut writer, PROTOCOL_VERSION)?;
-    write_string(&mut writer, format!("My Cool Server"))?;
-    write_string(&mut writer, format!("Welcome To Server!"))?;
-    write_byte(&mut writer, 0x64)?; // is player op(0x64) or not(0x0)
-    writer.flush()?;
-
-    Ok(())
+pub enum ServerPacket<'a> {
+    ServerInfo {
+        operator: u8,
+    },
+    SpawnPlayer {
+        pid: i8,
+        username: String,
+        position: (i16, i16, i16),
+        yaw: u8,
+        pitch: u8,
+    },
+    LevelInit,
+    LevelData {
+        length: i16,
+        data: &'a [u8],
+        percentage: u8,
+    },
+    LevelFinal {
+        width: i16,
+        height: i16,
+        length: i16,
+    },
 }
 
-pub fn spawn_player(
-    stream: TcpStream,
-    player_id: i8,
-    player_name: String,
-    pos_x: i16,
-    pos_y: i16,
-    pos_z: i16,
-    yaw: u8,
-    pitch: u8,
-) -> anyhow::Result<()> {
+pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
     let mut writer = BufWriter::new(stream.try_clone()?);
 
-    write_byte(&mut writer, SERVER_SPAWN)?;
-    write_sbyte(&mut writer, player_id)?;
-    write_string(&mut writer, player_name)?;
-    write_short(&mut writer, pos_x)?;
-    write_short(&mut writer, pos_y)?;
-    write_short(&mut writer, pos_z)?;
-    write_byte(&mut writer, yaw)?;
-    write_byte(&mut writer, pitch)?;
-    writer.flush()?;
-
-    Ok(())
-}
-
-pub fn level_init(stream: TcpStream) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
-
-    // Level initialize
-    write_byte(&mut writer, SERVER_LEVEL_INIT)?;
-    writer.flush()?;
-
-    Ok(())
-}
-
-pub fn level_chunk_data(
-    stream: TcpStream,
-    length: i16,
-    data: &[u8],
-    percentage: u8,
-) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
-
-    // Basic stuff
-    write_byte(&mut writer, SERVER_LEVEL_DATA)?;
-    write_short(&mut writer, length)?; // chunk length
-
-    // Chunk must be fixed size of 1024 bytes, fill the rest
-    writer.write(data)?;
-    for _i in 0..1024 - length {
-        write_byte(&mut writer, 0x00)?;
+    if let ServerPacket::ServerInfo { operator } = data {
+        // Send back information
+        write_byte(&mut writer, CS_IDENTIFICATION)?;
+        write_byte(&mut writer, PROTOCOL_VERSION)?;
+        write_string(&mut writer, format!("My Cool Server"))?;
+        write_string(&mut writer, format!("Welcome To Server!"))?;
+        write_byte(&mut writer, operator)?; // is player op(0x64) or not(0x0)
+        writer.flush()?;
     }
 
-    write_byte(&mut writer, percentage)?;
-    writer.flush()?;
+    Ok(())
+}
+
+pub fn spawn_player(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    if let ServerPacket::SpawnPlayer {
+        pid,
+        username,
+        position,
+        yaw,
+        pitch,
+    } = data
+    {
+        write_byte(&mut writer, SERVER_SPAWN)?;
+        write_sbyte(&mut writer, pid)?;
+        write_string(&mut writer, username)?;
+        write_short(&mut writer, position.0)?;
+        write_short(&mut writer, position.1)?;
+        write_short(&mut writer, position.2)?;
+        write_byte(&mut writer, yaw)?;
+        write_byte(&mut writer, pitch)?;
+        writer.flush()?;
+    } else {
+        // TODO(nv): return error?
+    }
 
     Ok(())
 }
 
-pub fn level_finalize(
-    stream: TcpStream,
-    width: i16,
-    height: i16,
-    length: i16,
-) -> anyhow::Result<()> {
+pub fn level_init(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
     let mut writer = BufWriter::new(stream.try_clone()?);
 
-    // Level finalize
-    write_byte(&mut writer, SERVER_LEVEL_FINAL)?;
-    write_short(&mut writer, width)?;
-    write_short(&mut writer, height)?;
-    write_short(&mut writer, length)?;
-    writer.flush()?;
+    if let ServerPacket::LevelInit = data {
+        // Level initialize
+        write_byte(&mut writer, SERVER_LEVEL_INIT)?;
+        writer.flush()?;
+    } else {
+        // error
+    }
+
+    Ok(())
+}
+
+pub fn level_chunk_data(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    if let ServerPacket::LevelData {
+        length,
+        data,
+        percentage,
+    } = data
+    {
+        // Basic stuff
+        write_byte(&mut writer, SERVER_LEVEL_DATA)?;
+        write_short(&mut writer, length)?; // chunk length
+
+        // Chunk must be fixed size of 1024 bytes, fill the rest
+        writer.write(data)?;
+        for _i in 0..1024 - length {
+            write_byte(&mut writer, 0x00)?;
+        }
+
+        write_byte(&mut writer, percentage)?;
+        writer.flush()?;
+    }
+
+    Ok(())
+}
+
+pub fn level_finalize(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
+    let mut writer = BufWriter::new(stream.try_clone()?);
+
+    if let ServerPacket::LevelFinal {
+        width,
+        height,
+        length,
+    } = data
+    {
+        // Level finalize
+        write_byte(&mut writer, SERVER_LEVEL_FINAL)?;
+        write_short(&mut writer, width)?;
+        write_short(&mut writer, height)?;
+        write_short(&mut writer, length)?;
+        writer.flush()?;
+    }
 
     Ok(())
 }
@@ -244,12 +270,6 @@ pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<(
     write_string(&mut writer, message)?;
     writer.flush()?;
     Ok(())
-}
-
-pub struct Packet {
-    packet_id: u8,
-    packet_len: usize,
-    data: Vec<u8>,
 }
 
 pub fn read_byte<R: Read>(reader: &mut R) -> anyhow::Result<u8> {

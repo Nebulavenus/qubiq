@@ -1,4 +1,7 @@
-use crate::packets::*;
+use crate::packets::{self, ClientPacket, ServerPacket};
+use crate::packets::{
+    CLIENT_BLOCK, CS_IDENTIFICATION, CS_MESSAGE, CS_PING_PONG, CS_POSITION_ORIENTATION,
+};
 use std::collections::VecDeque;
 use std::net::TcpStream;
 
@@ -7,11 +10,10 @@ pub struct Player {
     pub active: bool,
 
     name: String,
-    pos_x: i16,
-    pos_y: i16,
-    pos_z: i16,
+    position: (i16, i16, i16),
     yaw: u8,
     pitch: u8,
+    operator: u8,
 }
 
 impl Player {
@@ -20,11 +22,10 @@ impl Player {
             stream,
             active: true,
             name: String::from("Unknown"),
-            pos_x: 0,
-            pos_y: 0,
-            pos_z: 0,
+            position: (0, 0, 0),
             yaw: 45u8,
             pitch: 45u8,
+            operator: 0,
         })
     }
 
@@ -38,7 +39,7 @@ impl Player {
         println!("Player tick: {}", idx);
 
         let mut packet_id = None;
-        match read_byte(&mut self.stream) {
+        match packets::read_byte(&mut self.stream) {
             Ok(v) => packet_id = Some(v),
             Err(e) => {
                 match e.downcast::<std::io::Error>() {
@@ -61,7 +62,7 @@ impl Player {
             println!("");
             match packet_id {
                 CS_IDENTIFICATION => {
-                    let data = handle_player_identification(self.stream.try_clone()?)?;
+                    let data = packets::handle_player_identification(self.stream.try_clone()?)?;
                     match data {
                         ClientPacket::PlayerAuth {
                             protocol_version,
@@ -76,6 +77,8 @@ impl Player {
                                     protocol_version,
                                     crate::packets::PROTOCOL_VERSION
                                 );
+
+                                // TODO(nv): kick user
                             }
 
                             // Set player nickname
@@ -85,8 +88,16 @@ impl Player {
                             // TODO(nv): authenticate with md5
                             // TODO(nv): kick if server is full
 
+                            // TODO(nv): set operator type
+                            self.operator = 0x64;
+
                             // Send server info after successful auth
-                            server_info(self.stream.try_clone()?)?;
+                            packets::server_info(
+                                self.stream.try_clone()?,
+                                ServerPacket::ServerInfo {
+                                    operator: self.operator,
+                                },
+                            )?;
 
                             // Send world information
                             world.send_world(self.stream.try_clone()?)?;
@@ -109,19 +120,15 @@ impl Player {
                     }
                 }
                 CS_POSITION_ORIENTATION => {
-                    let data = handle_position_and_orientation(self.stream.try_clone()?)?;
+                    let data = packets::handle_position_and_orientation(self.stream.try_clone()?)?;
                     match data {
                         ClientPacket::PositionAndOrientation {
-                            player_id,
-                            pos_x,
-                            pos_y,
-                            pos_z,
+                            pid,
+                            position,
                             yaw,
                             pitch,
                         } => {
-                            self.pos_x = pos_x;
-                            self.pos_y = pos_y;
-                            self.pos_z = pos_z;
+                            self.position = position;
                             self.yaw = yaw;
                             self.pitch = pitch;
                         }
@@ -129,7 +136,7 @@ impl Player {
                     }
                 }
                 CS_MESSAGE => {
-                    let data = handle_player_message(self.stream.try_clone()?)?;
+                    let data = packets::handle_player_message(self.stream.try_clone()?)?;
                     match data {
                         ClientPacket::Message(msg) => {
                             // Save it in server's chat to broadcast it later
@@ -143,12 +150,10 @@ impl Player {
                 }
                 CS_PING_PONG => println!("Player pong"), // never returns - just to check if i can write to socket
                 CLIENT_BLOCK => {
-                    let data = handle_set_block(self.stream.try_clone()?)?;
+                    let data = packets::handle_set_block(self.stream.try_clone()?)?;
                     match data {
                         ClientPacket::SetBlock {
-                            coord_x,
-                            coord_y,
-                            coord_z,
+                            coords,
                             mode,
                             block_type,
                         } => {}
@@ -163,7 +168,7 @@ impl Player {
     }
 
     pub fn check_liveness(&mut self) -> anyhow::Result<()> {
-        match ping(self.stream.try_clone()?) {
+        match packets::ping(self.stream.try_clone()?) {
             Ok(_) => {}
             Err(e) => match e.downcast::<std::io::Error>() {
                 Ok(err) => {
@@ -178,7 +183,7 @@ impl Player {
     }
 
     pub fn disconnect(&mut self, reason: String) -> anyhow::Result<()> {
-        kick(self.stream.try_clone()?, reason)?;
+        packets::kick(self.stream.try_clone()?, reason)?;
         Ok(())
     }
 }
