@@ -34,11 +34,9 @@ impl Player {
         })
     }
 
-    // TODO(nv): find better way?
     pub fn tick(
         &mut self,
-        spawn_queue: &mut VecDeque<crate::packets::PID>,
-        chat: &mut VecDeque<String>,
+        queue: &mut VecDeque<packets::Queue>,
         world: &mut crate::World,
     ) -> anyhow::Result<()> {
         // Data loss if not buffered
@@ -134,7 +132,7 @@ impl Player {
                                 )?;
 
                                 // Send to spawn queue
-                                spawn_queue.push_back(self.pid);
+                                queue.push_back(packets::Queue::SpawnPlayer(self.pid));
                             }
                             _ => unreachable!(),
                         }
@@ -165,7 +163,10 @@ impl Player {
                                 let mut formatted = format!("{}: ", self.name.clone());
                                 formatted.push_str(&msg);
                                 println!("{}", formatted);
-                                chat.push_back(formatted); // could overflow - not 64 length
+
+                                // TODO(nv): test = could overflow - not 64 length
+                                // Broadcast message to other players
+                                queue.push_back(packets::Queue::ChatMessage(formatted));
                             }
                             _ => unreachable!(),
                         }
@@ -183,6 +184,25 @@ impl Player {
                                     "Coords: {:?} - Mode: {} - BlockType: {}",
                                     coords, mode, block_type
                                 );
+
+                                // TODO(nv): check if block is valid (loop through all known blocks u8)
+
+                                world.set_block(coords.0, coords.1, coords.2, block_type);
+
+                                // TODO(nv): if not valid send to air 0x0, also check world.set_block
+
+                                // Broadcast block to other players
+                                if mode == 0x0 {
+                                    // block destroyed
+                                    queue.push_back(packets::Queue::SetBlock {
+                                        coords,
+                                        block_type: 0x00,
+                                    }); // air
+                                } else {
+                                    // else place block which player held
+                                    queue
+                                        .push_back(packets::Queue::SetBlock { coords, block_type });
+                                }
                             }
                             _ => unreachable!(),
                         }

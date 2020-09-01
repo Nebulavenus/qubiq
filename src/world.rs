@@ -12,7 +12,7 @@ pub struct World {
 impl World {
     pub fn new(width: i16, height: i16, length: i16) -> Self {
         let count = width * height * length;
-        let blocks = vec![0x01u8; count as usize];
+        let blocks = vec![0x00u8; count as usize]; // fill with air
         let mut world = World {
             width,
             height,

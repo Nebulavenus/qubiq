@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::net::TcpListener;
 
-use crate::packets::broadcast_message;
+use crate::packets;
 use crate::Player;
 use crate::World;
 
@@ -10,13 +10,11 @@ pub struct Server {
     pub running: bool,
     listener: TcpListener,
 
-    // kinda callbacks
-    pub spawn_queue: VecDeque<crate::packets::PID>,
-    pub despawn_queue: VecDeque<crate::packets::PID>,
+    // events(values) that must be processed later after every player ticked
+    pub queue: VecDeque<packets::Queue>,
 
     // game specific
     pub players: Vec<Player>,
-    pub chat: VecDeque<String>,
     pub world: World,
 }
 
@@ -32,10 +30,8 @@ impl Server {
         Ok(Server {
             running: true,
             listener,
-            spawn_queue: VecDeque::new(),
-            despawn_queue: VecDeque::new(),
+            queue: VecDeque::new(),
             players: vec![],
-            chat: VecDeque::new(),
             world,
         })
     }
@@ -70,24 +66,47 @@ impl Server {
 
             // Tick player if he is alive
             if player.active {
-                player.tick(&mut self.spawn_queue, &mut self.chat, &mut self.world)?;
+                player.tick(&mut self.queue, &mut self.world)?;
             }
         }
 
-        // Player spawner
-        // If a new player connects send it to others and also send current players to him
-        while let Some(pid) = self.spawn_queue.pop_back() {
-            if let Some(inc_player) = self.players.iter().find(|c| c.pid == pid) {
-                for player in self.players.iter() {
-                    if player.pid == pid {
-                        continue;
+        println!("Queue to process: {}", self.queue.len());
+        // Process events queue
+        while let Some(ev_queue) = self.queue.pop_back() {
+            match ev_queue {
+                // Player spawner
+                // If a new player connects send it to others and also send current players to him
+                packets::Queue::SpawnPlayer(pid) => {
+                    if let Some(inc_player) = self.players.iter().find(|c| c.pid == pid) {
+                        for player in self.players.iter() {
+                            if player.pid == pid {
+                                continue;
+                            }
+
+                            // Spawn in the middle
+                            player.spawn_player(inc_player, Some(&mut self.world))?;
+
+                            // Spawn for a new player other already existing players
+                            inc_player.spawn_player(player, None)?;
+                        }
                     }
-
-                    // Spawn in the middle
-                    player.spawn_player(inc_player, Some(&mut self.world))?;
-
-                    // Spawn for a new player other already existing players
-                    inc_player.spawn_player(player, None)?;
+                }
+                packets::Queue::DespawnPlayer(_) => {
+                    todo!("Despawn player");
+                }
+                packets::Queue::ChatMessage(msg) => {
+                    for player in self.players.iter_mut() {
+                        // TODO(nv): could panic on write operation if player's stream closed
+                        packets::broadcast_message(&mut player.stream, msg.clone())?;
+                    }
+                }
+                packets::Queue::SetBlock { coords, block_type } => {
+                    for player in self.players.iter_mut() {
+                        packets::broadcast_block(
+                            &mut player.stream,
+                            packets::ServerPacket::SetBlock { coords, block_type },
+                        )?;
+                    }
                 }
             }
         }
@@ -103,17 +122,6 @@ impl Server {
                     continue;
                 }
                 o_player.broadcast_position(r_player)?;
-            }
-        }
-
-        println!("CHAT MSG: {}", self.chat.len());
-
-        // Broadcast messages
-        while let Some(msg) = self.chat.pop_back() {
-            for player in self.players.iter_mut() {
-                broadcast_message(&mut player.stream, msg.clone())?;
-
-                // TODO(nv): could panic on write operation if player's stream closed
             }
         }
 

@@ -18,8 +18,6 @@ pub const CS_MESSAGE: u8 = 0x0d;
 
 pub const CLIENT_BLOCK: u8 = 0x05;
 
-pub type PID = i8;
-
 pub enum ClientPacket {
     PlayerAuth {
         protocol_version: u8,
@@ -42,8 +40,6 @@ pub enum ClientPacket {
 }
 
 pub fn handle_player_identification<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
-    //let mut reader = BufReader::new(stream);
-
     // Read identification
     let protocol_version = read_byte(&mut reader)?;
     let username = read_string(&mut reader)?;
@@ -63,8 +59,6 @@ pub fn handle_player_identification<R: Read>(mut reader: &mut R) -> anyhow::Resu
 }
 
 pub fn handle_player_message<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
-    //let mut reader = BufReader::new(stream);
-
     // Get message from client
     let _unused = read_byte(&mut reader)?;
     let message = read_string(&mut reader)?;
@@ -82,8 +76,6 @@ pub fn handle_player_message<R: Read>(mut reader: &mut R) -> anyhow::Result<Clie
 }
 
 pub fn handle_set_block<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
-    //let mut reader = BufReader::new(stream);
-
     let x = read_short(&mut reader)?;
     let y = read_short(&mut reader)?;
     let z = read_short(&mut reader)?;
@@ -100,8 +92,6 @@ pub fn handle_set_block<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPac
 pub fn handle_position_and_orientation<R: Read>(
     mut reader: &mut R,
 ) -> anyhow::Result<ClientPacket> {
-    //let mut reader = BufReader::new(stream);
-
     let pid = read_byte(&mut reader)?; // should always be 255
     let x = read_short(&mut reader)?;
     let y = read_short(&mut reader)?;
@@ -139,6 +129,10 @@ pub enum ServerPacket<'a> {
         height: i16,
         length: i16,
     },
+    SetBlock {
+        coords: (i16, i16, i16),
+        block_type: u8,
+    },
     PositionAndOrientation {
         pid: i8,
         position: (i16, i16, i16),
@@ -148,8 +142,6 @@ pub enum ServerPacket<'a> {
 }
 
 pub fn server_info<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     if let ServerPacket::ServerInfo { operator } = data {
         // Send back information
         write_byte(&mut writer, CS_IDENTIFICATION)?;
@@ -167,8 +159,6 @@ pub fn player_position_update<W: Write>(
     mut writer: &mut W,
     data: ServerPacket,
 ) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     if let ServerPacket::PositionAndOrientation {
         pid,
         position,
@@ -209,30 +199,22 @@ pub fn spawn_player<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow:
         write_byte(&mut writer, yaw)?;
         write_byte(&mut writer, pitch)?;
         writer.flush()?;
-    } else {
-        // TODO(nv): return error?
     }
 
     Ok(())
 }
 
 pub fn level_init<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     if let ServerPacket::LevelInit = data {
         // Level initialize
         write_byte(&mut writer, SERVER_LEVEL_INIT)?;
         writer.flush()?;
-    } else {
-        // error
     }
 
     Ok(())
 }
 
 pub fn level_chunk_data<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     if let ServerPacket::LevelData {
         length,
         data,
@@ -276,17 +258,36 @@ pub fn level_finalize<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyho
     Ok(())
 }
 
-pub fn ping<W: Write>(mut writer: &mut W) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
+pub enum Queue {
+    SpawnPlayer(i8),
+    DespawnPlayer(i8),
+    ChatMessage(String),
+    SetBlock {
+        coords: (i16, i16, i16),
+        block_type: u8,
+    },
+}
 
+pub fn broadcast_block<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    if let ServerPacket::SetBlock { coords, block_type } = data {
+        write_byte(writer, SERVER_BLOCK)?;
+        write_short(writer, coords.0)?;
+        write_short(writer, coords.1)?;
+        write_short(writer, coords.2)?;
+        write_byte(writer, block_type)?;
+        writer.flush()?;
+    }
+
+    Ok(())
+}
+
+pub fn ping<W: Write>(mut writer: &mut W) -> anyhow::Result<()> {
     write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
     Ok(())
 }
 
 pub fn kick<W: Write>(mut writer: &mut W, message: String) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     write_byte(&mut writer, SERVER_KICK)?;
     write_string(&mut writer, message)?;
     writer.flush()?;
@@ -294,8 +295,6 @@ pub fn kick<W: Write>(mut writer: &mut W, message: String) -> anyhow::Result<()>
 }
 
 pub fn broadcast_message<W: Write>(mut writer: &mut W, message: String) -> anyhow::Result<()> {
-    //let mut writer = BufWriter::new(stream);
-
     write_byte(&mut writer, CS_MESSAGE)?;
     write_sbyte(&mut writer, 0)?;
     write_string(&mut writer, message)?;
