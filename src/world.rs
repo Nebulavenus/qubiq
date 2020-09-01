@@ -1,7 +1,6 @@
 use crate::packets::{self, ServerPacket};
 use flate2::write::GzEncoder;
 use std::io::Write;
-use std::net::TcpStream;
 
 pub struct World {
     pub width: i16,
@@ -13,41 +12,34 @@ pub struct World {
 impl World {
     pub fn new(width: i16, height: i16, length: i16) -> Self {
         let count = width * height * length;
-        //let blocks = vec![0x01u8; count as usize];
-
-        let blocks = World::generate_flat_map(width, height, length);
-
-        assert_eq!(count as usize, blocks.len());
-
-        World {
+        let blocks = vec![0x01u8; count as usize];
+        let mut world = World {
             width,
             height,
             length,
             blocks,
-        }
+        };
+
+        // TODO(nv): make builder pattern
+        world.generate_flat_map();
+
+        world
     }
 
-    fn generate_flat_map(width: i16, height: i16, length: i16) -> Vec<u8> {
-        let map_size = width * height * length;
-        let mut blocks = vec![0x00u8; map_size as usize];
-
-        let coord_to_block_idx =
-            |x: i16, y: i16, z: i16| -> usize { (x + width * (z + length * y)) as usize };
-
-        for y in 0..height / 2 {
-            for x in 0..width {
-                for z in 0..length {
-                    let idx = coord_to_block_idx(x, y, z);
-                    if y < (height / 2 - 1) {
-                        blocks[idx] = 0x03;
+    fn generate_flat_map(&mut self) {
+        // Basic algorithm
+        for y in 0..self.height / 2 {
+            for x in 0..self.width {
+                for z in 0..self.length {
+                    let idx = self.coord_to_block_idx(x, y, z);
+                    if y < (self.height / 2 - 1) {
+                        self.blocks[idx] = 0x03;
                     } else {
-                        blocks[idx] = 0x02;
+                        self.blocks[idx] = 0x02;
                     }
                 }
             }
         }
-
-        blocks
     }
 
     fn coord_to_block_idx(&mut self, x: i16, y: i16, z: i16) -> usize {
@@ -88,9 +80,9 @@ impl World {
     }
 
     // TODO(nv): move outside of world?
-    pub fn send_world(&mut self, stream: TcpStream) -> anyhow::Result<()> {
+    pub fn send_world<W: Write>(&mut self, writer: &mut W) -> anyhow::Result<()> {
         // Init level transmition
-        packets::level_init(stream.try_clone()?, ServerPacket::LevelInit)?;
+        packets::level_init(writer, ServerPacket::LevelInit)?;
 
         // Algorithm to send bytes in chunk
         let gblocks = self.gzip_world()?;
@@ -106,7 +98,7 @@ impl World {
             };
 
             packets::level_chunk_data(
-                stream.try_clone()?,
+                writer,
                 ServerPacket::LevelData {
                     length: count as i16,
                     data: &gblocks[current_bytes..count],
@@ -121,7 +113,7 @@ impl World {
 
         // Finalize transmition
         packets::level_finalize(
-            stream.try_clone()?,
+            writer,
             ServerPacket::LevelFinal {
                 width: self.width,
                 height: self.height,

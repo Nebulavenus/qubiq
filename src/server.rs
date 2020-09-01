@@ -110,8 +110,8 @@ impl Server {
 
         // Broadcast messages
         while let Some(msg) = self.chat.pop_back() {
-            for player in self.players.iter() {
-                broadcast_message(player.stream.try_clone()?, msg.clone())?;
+            for player in self.players.iter_mut() {
+                broadcast_message(&mut player.stream, msg.clone())?;
 
                 // TODO(nv): could panic on write operation if player's stream closed
             }

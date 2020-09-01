@@ -1,5 +1,4 @@
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::net::TcpStream;
+use std::io::{Read, Write};
 
 pub const PROTOCOL_VERSION: u8 = 0x7;
 
@@ -42,8 +41,8 @@ pub enum ClientPacket {
     },
 }
 
-pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream);
+pub fn handle_player_identification<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
+    //let mut reader = BufReader::new(stream);
 
     // Read identification
     let protocol_version = read_byte(&mut reader)?;
@@ -63,8 +62,8 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientP
     })
 }
 
-pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream);
+pub fn handle_player_message<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
+    //let mut reader = BufReader::new(stream);
 
     // Get message from client
     let _unused = read_byte(&mut reader)?;
@@ -82,8 +81,8 @@ pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> 
     Ok(ClientPacket::Message(back_message))
 }
 
-pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream);
+pub fn handle_set_block<R: Read>(mut reader: &mut R) -> anyhow::Result<ClientPacket> {
+    //let mut reader = BufReader::new(stream);
 
     let x = read_short(&mut reader)?;
     let y = read_short(&mut reader)?;
@@ -98,8 +97,10 @@ pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
     })
 }
 
-pub fn handle_position_and_orientation(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream);
+pub fn handle_position_and_orientation<R: Read>(
+    mut reader: &mut R,
+) -> anyhow::Result<ClientPacket> {
+    //let mut reader = BufReader::new(stream);
 
     let pid = read_byte(&mut reader)?; // should always be 255
     let x = read_short(&mut reader)?;
@@ -146,8 +147,8 @@ pub enum ServerPacket<'a> {
     },
 }
 
-pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn server_info<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::ServerInfo { operator } = data {
         // Send back information
@@ -162,8 +163,11 @@ pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub fn player_position_update(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn player_position_update<W: Write>(
+    mut writer: &mut W,
+    data: ServerPacket,
+) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::PositionAndOrientation {
         pid,
@@ -185,8 +189,8 @@ pub fn player_position_update(stream: TcpStream, data: ServerPacket) -> anyhow::
     Ok(())
 }
 
-pub fn spawn_player(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn spawn_player<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::SpawnPlayer {
         pid,
@@ -212,8 +216,8 @@ pub fn spawn_player(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()>
     Ok(())
 }
 
-pub fn level_init(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn level_init<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelInit = data {
         // Level initialize
@@ -226,8 +230,8 @@ pub fn level_init(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn level_chunk_data(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn level_chunk_data<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelData {
         length,
@@ -252,8 +256,8 @@ pub fn level_chunk_data(stream: TcpStream, data: ServerPacket) -> anyhow::Result
     Ok(())
 }
 
-pub fn level_finalize(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn level_finalize<W: Write>(mut writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelFinal {
         width,
@@ -272,16 +276,16 @@ pub fn level_finalize(stream: TcpStream, data: ServerPacket) -> anyhow::Result<(
     Ok(())
 }
 
-pub fn ping(stream: TcpStream) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn ping<W: Write>(mut writer: &mut W) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
     Ok(())
 }
 
-pub fn kick(stream: TcpStream, message: String) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn kick<W: Write>(mut writer: &mut W, message: String) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, SERVER_KICK)?;
     write_string(&mut writer, message)?;
@@ -289,8 +293,8 @@ pub fn kick(stream: TcpStream, message: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream);
+pub fn broadcast_message<W: Write>(mut writer: &mut W, message: String) -> anyhow::Result<()> {
+    //let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, CS_MESSAGE)?;
     write_sbyte(&mut writer, 0)?;
