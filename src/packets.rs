@@ -19,6 +19,8 @@ pub const CS_MESSAGE: u8 = 0x0d;
 
 pub const CLIENT_BLOCK: u8 = 0x05;
 
+pub type PID = i8;
+
 pub enum ClientPacket {
     PlayerAuth {
         protocol_version: u8,
@@ -41,7 +43,7 @@ pub enum ClientPacket {
 }
 
 pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(stream);
 
     // Read identification
     let protocol_version = read_byte(&mut reader)?;
@@ -62,7 +64,7 @@ pub fn handle_player_identification(stream: TcpStream) -> anyhow::Result<ClientP
 }
 
 pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(stream);
 
     // Get message from client
     let _unused = read_byte(&mut reader)?;
@@ -81,7 +83,7 @@ pub fn handle_player_message(stream: TcpStream) -> anyhow::Result<ClientPacket> 
 }
 
 pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(stream);
 
     let x = read_short(&mut reader)?;
     let y = read_short(&mut reader)?;
@@ -97,12 +99,9 @@ pub fn handle_set_block(stream: TcpStream) -> anyhow::Result<ClientPacket> {
 }
 
 pub fn handle_position_and_orientation(stream: TcpStream) -> anyhow::Result<ClientPacket> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(stream);
 
     let pid = read_byte(&mut reader)?; // should always be 255
-    if pid != 255 {
-        println!("Something wrong with player id in position?");
-    }
     let x = read_short(&mut reader)?;
     let y = read_short(&mut reader)?;
     let z = read_short(&mut reader)?;
@@ -148,7 +147,7 @@ pub enum ServerPacket<'a> {
 }
 
 pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::ServerInfo { operator } = data {
         // Send back information
@@ -164,7 +163,7 @@ pub fn server_info(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> 
 }
 
 pub fn player_position_update(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::PositionAndOrientation {
         pid,
@@ -187,7 +186,7 @@ pub fn player_position_update(stream: TcpStream, data: ServerPacket) -> anyhow::
 }
 
 pub fn spawn_player(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::SpawnPlayer {
         pid,
@@ -214,7 +213,7 @@ pub fn spawn_player(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()>
 }
 
 pub fn level_init(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelInit = data {
         // Level initialize
@@ -228,7 +227,7 @@ pub fn level_init(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
 }
 
 pub fn level_chunk_data(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelData {
         length,
@@ -254,7 +253,7 @@ pub fn level_chunk_data(stream: TcpStream, data: ServerPacket) -> anyhow::Result
 }
 
 pub fn level_finalize(stream: TcpStream, data: ServerPacket) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     if let ServerPacket::LevelFinal {
         width,
@@ -274,7 +273,7 @@ pub fn level_finalize(stream: TcpStream, data: ServerPacket) -> anyhow::Result<(
 }
 
 pub fn ping(stream: TcpStream) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, CS_PING_PONG)?;
     writer.flush()?;
@@ -282,7 +281,7 @@ pub fn ping(stream: TcpStream) -> anyhow::Result<()> {
 }
 
 pub fn kick(stream: TcpStream, message: String) -> anyhow::Result<()> {
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, SERVER_KICK)?;
     write_string(&mut writer, message)?;
@@ -291,8 +290,7 @@ pub fn kick(stream: TcpStream, message: String) -> anyhow::Result<()> {
 }
 
 pub fn broadcast_message(stream: TcpStream, message: String) -> anyhow::Result<()> {
-    //let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut writer = BufWriter::new(stream);
 
     write_byte(&mut writer, CS_MESSAGE)?;
     write_sbyte(&mut writer, 0)?;

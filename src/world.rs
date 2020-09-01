@@ -71,10 +71,11 @@ impl World {
     }
 
     pub fn spawning_center(&mut self) -> (i16, i16, i16) {
-        let x = self.width / 2;
-        let y = self.height / 2;
-        let z = self.length / 2;
-        (x, y, z)
+        // Convert world coords to player's
+        let world_x = ((self.width / 2) as f64 * 32.0) as i16;
+        let world_y = ((self.height / 2) as f64 * 32.0) as i16;
+        let world_z = ((self.length / 2) as f64 * 32.0) as i16;
+        (world_x, world_y, world_z)
     }
 
     pub fn gzip_world(&mut self) -> anyhow::Result<Vec<u8>> {

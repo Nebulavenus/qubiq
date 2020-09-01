@@ -9,7 +9,7 @@ pub struct Player {
     pub stream: TcpStream,
     pub active: bool,
 
-    pid: i8,
+    pub pid: i8,
     name: String,
     position: (i16, i16, i16),
     yaw: u8,
@@ -26,17 +26,17 @@ impl Player {
             pid,
             name: String::from("Unknown"),
             position: (0, 0, 0),
-            yaw: 45u8,
-            pitch: 45u8,
+            yaw: 0,
+            pitch: 0,
             operator: 0,
             authed: false,
         })
     }
 
-    // TODO(nv): add reference to server shared state? instead passing argument
+    // TODO(nv): find better way?
     pub fn tick(
         &mut self,
-        players: &mut Vec<Player>,
+        spawn_queue: &mut VecDeque<crate::packets::PID>,
         chat: &mut VecDeque<String>,
         world: &mut crate::World,
     ) -> anyhow::Result<()> {
@@ -60,7 +60,6 @@ impl Player {
         }
 
         if let Some(packet_id) = packet_id {
-            // TODO(nv): handle send back parsed enums to handle state here instead.
             println!("Received packet_id: {}", packet_id);
             println!("");
             match packet_id {
@@ -107,31 +106,22 @@ impl Player {
                             // Send world information
                             world.send_world(self.stream.try_clone()?)?;
 
-                            // TODO(nv): move this out?
-                            // TODO(nv): send after new player connected, for now probably redundant
-                            // Send spawn position
-                            let world_center = world.spawning_center();
+                            // Spawn authed player in the middle of the world
+                            let mut world_center = world.spawning_center();
+                            world_center.1 += 51;
                             packets::spawn_player(
                                 self.stream.try_clone()?,
                                 ServerPacket::SpawnPlayer {
                                     pid: -1, // always self
                                     username: self.name.clone(),
                                     position: world_center,
-                                    yaw: 45,
-                                    pitch: 45,
+                                    yaw: self.yaw,
+                                    pitch: self.pitch,
                                 },
                             )?;
-                            // Another player
-                            packets::spawn_player(
-                                self.stream.try_clone()?,
-                                ServerPacket::SpawnPlayer {
-                                    pid: 1, // always self
-                                    username: self.name.clone(),
-                                    position: world_center,
-                                    yaw: 45,
-                                    pitch: 45,
-                                },
-                            )?;
+
+                            // Send to spawn queue
+                            spawn_queue.push_back(self.pid);
                         }
                         _ => unreachable!(),
                     }
@@ -148,34 +138,7 @@ impl Player {
                             self.position = position;
                             self.yaw = yaw;
                             self.pitch = pitch;
-
-                            // First packet to myself
-                            packets::player_position_update(
-                                self.stream.try_clone()?,
-                                ServerPacket::PositionAndOrientation {
-                                    pid: -1, // myself
-                                    position: self.position,
-                                    yaw: self.yaw,
-                                    pitch: self.pitch,
-                                },
-                            )?;
-
-                            // Rebroadcast to other players
-                            for player in players {
-                                if player.pid == self.pid {
-                                    continue;
-                                }
-
-                                packets::player_position_update(
-                                    player.stream.try_clone()?,
-                                    ServerPacket::PositionAndOrientation {
-                                        pid: player.pid,
-                                        position: player.position,
-                                        yaw: player.yaw,
-                                        pitch: player.pitch,
-                                    },
-                                )?;
-                            }
+                            println!("Pos: {:?} - Yaw: {} - Pitch: {}", position, yaw, pitch);
                         }
                         _ => unreachable!(),
                     }
@@ -208,6 +171,47 @@ impl Player {
                 _ => (),
             }
         }
+
+        Ok(())
+    }
+
+    pub fn spawn_player(
+        &self,
+        player: &Player,
+        world: Option<&mut crate::World>,
+    ) -> anyhow::Result<()> {
+        // Spawn player for a self.player, if world passed then in the middle of the world
+        let mut data = ServerPacket::SpawnPlayer {
+            pid: player.pid,
+            username: player.name.clone(),
+            position: player.position,
+            yaw: player.yaw,
+            pitch: player.pitch,
+        };
+        if let Some(world) = world {
+            let mut world_center = world.spawning_center();
+            world_center.1 += 51;
+            if let ServerPacket::SpawnPlayer {
+                ref mut position, ..
+            } = data
+            {
+                *position = world_center;
+            }
+        }
+        packets::spawn_player(self.stream.try_clone()?, data)?;
+        Ok(())
+    }
+
+    pub fn broadcast_position(&self, player: &Player) -> anyhow::Result<()> {
+        packets::player_position_update(
+            self.stream.try_clone()?,
+            ServerPacket::PositionAndOrientation {
+                pid: player.pid,
+                position: player.position,
+                yaw: player.yaw,
+                pitch: player.pitch,
+            },
+        )?;
 
         Ok(())
     }

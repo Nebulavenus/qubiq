@@ -10,6 +10,10 @@ pub struct Server {
     pub running: bool,
     listener: TcpListener,
 
+    // kinda callbacks
+    pub spawn_queue: VecDeque<crate::packets::PID>,
+    pub despawn_queue: VecDeque<crate::packets::PID>,
+
     // game specific
     pub players: Vec<Player>,
     pub chat: VecDeque<String>,
@@ -22,12 +26,14 @@ impl Server {
         let listener = TcpListener::bind(address)?;
         listener.set_nonblocking(true)?;
 
-        // TODO(nv): world type generation from config or load it
+        // TODO(nv): world type generation from config or load it from file
         let world = World::new(10, 10, 10);
 
         Ok(Server {
             running: true,
             listener,
+            spawn_queue: VecDeque::new(),
+            despawn_queue: VecDeque::new(),
             players: vec![],
             chat: VecDeque::new(),
             world,
@@ -39,11 +45,10 @@ impl Server {
         for inc in self.listener.incoming() {
             let _ = match inc {
                 Ok(stream) => {
-                    // TODO(nv): increment pid
-                    let player = Player::new(stream, 0)?;
+                    // TODO(nv): handle pid more correctly
+                    let player_count = self.players.len();
+                    let player = Player::new(stream, player_count as i8)?;
                     self.players.push(player);
-
-                    // TODO(nv): assign new pid, spawn player for other players
                 }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -65,20 +70,49 @@ impl Server {
 
             // Tick player if he is alive
             if player.active {
-                //let players = &mut self.players;
-                player.tick(&mut self.players, &mut self.chat, &mut self.world)?;
+                player.tick(&mut self.spawn_queue, &mut self.chat, &mut self.world)?;
             }
         }
 
-        // Delete unactive
+        // Player spawner
+        // If a new player connects send it to others and also send current players to him
+        while let Some(pid) = self.spawn_queue.pop_back() {
+            if let Some(inc_player) = self.players.iter().find(|c| c.pid == pid) {
+                for player in self.players.iter() {
+                    if player.pid == pid {
+                        continue;
+                    }
+
+                    // Spawn in the middle
+                    player.spawn_player(inc_player, Some(&mut self.world))?;
+
+                    // Spawn for a new player other already existing players
+                    inc_player.spawn_player(player, None)?;
+                }
+            }
+        }
+
+        // TODO(nv): check connection in packet class on each write and disconnect it?
+        // Delete inactive players
         self.players.retain(|p| p.active == true);
+
+        // Broadcast player positions
+        for o_player in self.players.iter() {
+            for r_player in self.players.iter() {
+                if o_player.pid == r_player.pid {
+                    continue;
+                }
+                o_player.broadcast_position(r_player)?;
+            }
+        }
 
         println!("CHAT MSG: {}", self.chat.len());
 
         // Broadcast messages
         while let Some(msg) = self.chat.pop_back() {
-            for player in self.players.iter_mut() {
+            for player in self.players.iter() {
                 broadcast_message(player.stream.try_clone()?, msg.clone())?;
+
                 // TODO(nv): could panic on write operation if player's stream closed
             }
         }
