@@ -24,8 +24,9 @@ impl Server {
         let listener = TcpListener::bind(address)?;
         listener.set_nonblocking(true)?;
 
+        // Tested for now 1024x32x1024
         // TODO(nv): world type generation from config or load it from file
-        let world = World::new(10, 10, 10);
+        let world = World::new(64, 32, 64);
 
         Ok(Server {
             running: true,

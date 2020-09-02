@@ -11,8 +11,8 @@ pub struct World {
 
 impl World {
     pub fn new(width: i16, height: i16, length: i16) -> Self {
-        let count = width * height * length;
-        let blocks = vec![0x00u8; count as usize]; // fill with air
+        let count = width as usize * height as usize * length as usize;
+        let blocks = vec![0x00u8; count]; // fill with air
         let mut world = World {
             width,
             height,
@@ -43,7 +43,12 @@ impl World {
     }
 
     fn coord_to_block_idx(&mut self, x: i16, y: i16, z: i16) -> usize {
-        return (x + self.width * (z + self.length * y)) as usize;
+        let x = x as usize;
+        let y = y as usize;
+        let z = z as usize;
+        let width = self.width as usize;
+        let length = self.length as usize;
+        return (x + width * (z + length * y)) as usize;
     }
 
     pub fn set_block(&mut self, x: i16, y: i16, z: i16, block_id: u8) {
@@ -72,7 +77,7 @@ impl World {
 
     pub fn gzip_world(&mut self) -> anyhow::Result<Vec<u8>> {
         let mut gzipper = GzEncoder::new(Vec::new(), flate2::Compression::default());
-        let world_size = (self.width * self.height * self.length) as i32;
+        let world_size = self.width as i32 * self.height as i32 * self.length as i32;
         gzipper.write(&world_size.to_be_bytes())?; // world size
         gzipper.write(&self.blocks)?;
 
@@ -88,7 +93,6 @@ impl World {
         let gblocks = self.gzip_world()?;
         let total_bytes = gblocks.len();
         let mut current_bytes = 0;
-        let mut percentage = 0u8;
         while current_bytes < total_bytes {
             let remaining_bytes = total_bytes - current_bytes;
             let count = if remaining_bytes >= 1024 {
@@ -97,18 +101,20 @@ impl World {
                 remaining_bytes
             };
 
+            // Just hack - predicted percentage
+            let tmp_curr_bytes = current_bytes + count;
+            let percentage = ((tmp_curr_bytes as f32 / total_bytes as f32) * 100.0) as u8;
+
             packets::level_chunk_data(
                 writer,
                 ServerPacket::LevelData {
                     length: count as i16,
-                    data: &gblocks[current_bytes..count],
+                    data: &gblocks[current_bytes..current_bytes + count],
                     percentage,
                 },
             )?;
 
             current_bytes += count;
-
-            percentage = ((current_bytes as f32 / total_bytes as f32) * 100.0) as u8;
         }
 
         // Finalize transmition
