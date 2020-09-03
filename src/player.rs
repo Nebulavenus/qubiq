@@ -217,11 +217,7 @@ impl Player {
         Ok(())
     }
 
-    pub fn spawn_player(
-        &self,
-        player: &Player,
-        world: Option<&mut crate::World>,
-    ) -> anyhow::Result<()> {
+    pub fn spawn_player(&self, player: &Player, world: Option<&mut crate::World>) {
         // Spawn player for a self.player, if world passed then in the middle of the world
         let mut data = ServerPacket::SpawnPlayer {
             pid: player.pid,
@@ -241,13 +237,15 @@ impl Player {
             }
         }
         let mut writer = BufWriter::new(&self.stream);
-        packets::spawn_player(&mut writer, data)?;
-        Ok(())
+        match packets::spawn_player(&mut writer, data) {
+            Ok(_) => {}
+            Err(_) => {}
+        };
     }
 
-    pub fn broadcast_position(&self, player: &Player) -> anyhow::Result<()> {
+    pub fn broadcast_position(&self, player: &Player) {
         let mut writer = BufWriter::new(&self.stream);
-        packets::player_position_update(
+        match packets::player_position_update(
             &mut writer,
             ServerPacket::PositionAndOrientation {
                 pid: player.pid,
@@ -255,24 +253,25 @@ impl Player {
                 yaw: player.yaw,
                 pitch: player.pitch,
             },
-        )?;
-
-        Ok(())
+        ) {
+            Ok(_) => {}
+            Err(_) => {}
+        };
     }
 
-    pub fn check_liveness(&mut self) -> anyhow::Result<()> {
+    pub fn check_liveness(&mut self) {
         match packets::ping(&mut self.stream) {
             Ok(_) => {}
             Err(e) => match e.downcast::<std::io::Error>() {
                 Ok(err) => {
-                    if err.kind() == std::io::ErrorKind::ConnectionAborted {
+                    // Set inactive and delete it in next tick iteration
+                    if err.kind() != std::io::ErrorKind::WouldBlock {
                         self.active = false;
                     }
                 }
                 Err(pe) => panic!(pe),
             },
         }
-        Ok(())
     }
 
     pub fn disconnect(&mut self, reason: String) -> anyhow::Result<()> {

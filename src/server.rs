@@ -57,17 +57,30 @@ impl Server {
             };
         }
 
+        // Delete inactive players -- see line 68
+        self.players.retain(|p| p.active == true);
+
         // TODO(nv): Progress world & physics
         //self.world.tick()?;
 
         // Progress players
         for player in self.players.iter_mut() {
-            // Send ping to determine if socket is open
-            player.check_liveness()?;
+            // Try to send ping and determine if the socket is still open
+            // Basicaly the idea is simple. Every write or read on socket may fail. But with every tick
+            // TcpStream will be checked for closed socket and mark it inactive to delete player later and not to process him.
+            player.check_liveness();
 
             // Tick player if he is alive
             if player.active {
-                player.tick(&mut self.queue, &mut self.world)?;
+                match player.tick(&mut self.queue, &mut self.world) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("Player: {} - Err: {}", player.pid, e);
+                        // Mark it inactive and continue
+                        player.active = false; // Almost never happens? At least here
+                        continue;
+                    }
+                }
             }
         }
 
@@ -85,10 +98,10 @@ impl Server {
                             }
 
                             // Spawn in the middle
-                            player.spawn_player(inc_player, Some(&mut self.world))?;
+                            player.spawn_player(inc_player, Some(&mut self.world));
 
                             // Spawn for a new player other already existing players
-                            inc_player.spawn_player(player, None)?;
+                            inc_player.spawn_player(player, None);
                         }
                     }
                 }
@@ -97,24 +110,26 @@ impl Server {
                 }
                 packets::Queue::ChatMessage(msg) => {
                     for player in self.players.iter_mut() {
-                        // TODO(nv): could panic on write operation if player's stream closed
-                        packets::broadcast_message(&mut player.stream, msg.clone())?;
+                        // Yeah I know... but ¯\_(ツ)_/¯
+                        match packets::broadcast_message(&mut player.stream, msg.clone()) {
+                            Ok(_) => {}
+                            Err(_) => {}
+                        }
                     }
                 }
                 packets::Queue::SetBlock { coords, block_type } => {
                     for player in self.players.iter_mut() {
-                        packets::broadcast_block(
+                        match packets::broadcast_block(
                             &mut player.stream,
                             packets::ServerPacket::SetBlock { coords, block_type },
-                        )?;
+                        ) {
+                            Ok(_) => {}
+                            Err(_) => {}
+                        }
                     }
                 }
             }
         }
-
-        // TODO(nv): check connection in packet class on each write and disconnect it?
-        // Delete inactive players
-        self.players.retain(|p| p.active == true);
 
         // Broadcast player positions
         for o_player in self.players.iter() {
@@ -122,7 +137,7 @@ impl Server {
                 if o_player.pid == r_player.pid {
                     continue;
                 }
-                o_player.broadcast_position(r_player)?;
+                o_player.broadcast_position(r_player);
             }
         }
 
