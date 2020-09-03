@@ -116,6 +116,7 @@ pub enum ServerPacket<'a> {
         yaw: u8,
         pitch: u8,
     },
+    DespawnPlayer(i8),
     LevelInit,
     LevelData {
         length: i16,
@@ -137,10 +138,12 @@ pub enum ServerPacket<'a> {
         yaw: u8,
         pitch: u8,
     },
+    Message(String),
+    Kick(String),
+    UpdateUserType(u8),
 }
 
 pub fn server_info<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    // Send back information
     if let ServerPacket::ServerInfo { operator } = data {
         write_byte(writer, CS_IDENTIFICATION)?;
         write_byte(writer, PROTOCOL_VERSION)?;
@@ -149,7 +152,6 @@ pub fn server_info<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Resu
         write_byte(writer, operator)?; // is player op(0x64) or not(0x0)
         writer.flush()?;
     }
-
     Ok(())
 }
 
@@ -170,7 +172,6 @@ pub fn player_position_update<W: Write>(writer: &mut W, data: ServerPacket) -> a
         write_byte(writer, pitch)?;
         writer.flush()?;
     }
-
     Ok(())
 }
 
@@ -193,17 +194,23 @@ pub fn spawn_player<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Res
         write_byte(writer, pitch)?;
         writer.flush()?;
     }
+    Ok(())
+}
 
+pub fn despawn_player<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    if let ServerPacket::DespawnPlayer(pid) = data {
+        write_byte(writer, SERVER_DESPAWN)?;
+        write_sbyte(writer, pid)?;
+        writer.flush()?;
+    }
     Ok(())
 }
 
 pub fn level_init<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    // Level initialize
     if let ServerPacket::LevelInit = data {
         write_byte(writer, SERVER_LEVEL_INIT)?;
         writer.flush()?;
     }
-
     Ok(())
 }
 
@@ -227,7 +234,6 @@ pub fn level_chunk_data<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow:
         write_byte(writer, percentage)?;
         writer.flush()?;
     }
-
     Ok(())
 }
 
@@ -245,18 +251,7 @@ pub fn level_finalize<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::R
         write_short(writer, length)?;
         writer.flush()?;
     }
-
     Ok(())
-}
-
-pub enum Queue {
-    SpawnPlayer(i8),
-    DespawnPlayer(i8),
-    ChatMessage(String),
-    SetBlock {
-        coords: (i16, i16, i16),
-        block_type: u8,
-    },
 }
 
 pub fn broadcast_block<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
@@ -268,7 +263,6 @@ pub fn broadcast_block<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::
         write_byte(writer, block_type)?;
         writer.flush()?;
     }
-
     Ok(())
 }
 
@@ -278,18 +272,22 @@ pub fn ping<W: Write>(writer: &mut W) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn kick<W: Write>(writer: &mut W, message: String) -> anyhow::Result<()> {
-    write_byte(writer, SERVER_KICK)?;
-    write_string(writer, message)?;
-    writer.flush()?;
+pub fn kick<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    if let ServerPacket::Kick(message) = data {
+        write_byte(writer, SERVER_KICK)?;
+        write_string(writer, message)?;
+        writer.flush()?;
+    }
     Ok(())
 }
 
-pub fn broadcast_message<W: Write>(writer: &mut W, message: String) -> anyhow::Result<()> {
-    write_byte(writer, CS_MESSAGE)?;
-    write_sbyte(writer, 0)?;
-    write_string(writer, message)?;
-    writer.flush()?;
+pub fn broadcast_message<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
+    if let ServerPacket::Message(message) = data {
+        write_byte(writer, CS_MESSAGE)?;
+        write_sbyte(writer, 0)?;
+        write_string(writer, message)?;
+        writer.flush()?;
+    }
     Ok(())
 }
 

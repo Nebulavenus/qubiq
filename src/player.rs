@@ -2,6 +2,7 @@ use crate::packets::{self, ClientPacket, ServerPacket};
 use crate::packets::{
     CLIENT_BLOCK, CS_IDENTIFICATION, CS_MESSAGE, CS_PING_PONG, CS_POSITION_ORIENTATION,
 };
+use crate::server;
 use std::collections::VecDeque;
 use std::io::{BufReader, BufWriter};
 use std::net::TcpStream;
@@ -20,8 +21,8 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(stream: TcpStream, pid: i8) -> anyhow::Result<Self> {
-        Ok(Player {
+    pub fn new(stream: TcpStream, pid: i8) -> Self {
+        Player {
             stream,
             active: true,
             pid,
@@ -31,12 +32,12 @@ impl Player {
             pitch: 0,
             operator: 0,
             authed: false,
-        })
+        }
     }
 
     pub fn tick(
         &mut self,
-        queue: &mut VecDeque<packets::Queue>,
+        queue: &mut VecDeque<server::Queue>,
         world: &mut crate::World,
     ) -> anyhow::Result<()> {
         // Data loss if not buffered
@@ -132,7 +133,7 @@ impl Player {
                                 )?;
 
                                 // Send to spawn queue
-                                queue.push_back(packets::Queue::SpawnPlayer(self.pid));
+                                queue.push_back(server::Queue::SpawnPlayer(self.pid));
                             }
                             _ => unreachable!(),
                         }
@@ -166,7 +167,7 @@ impl Player {
 
                                 // TODO(nv): test = could overflow - not 64 length
                                 // Broadcast message to other players
-                                queue.push_back(packets::Queue::ChatMessage(formatted));
+                                queue.push_back(server::Queue::ChatMessage(formatted));
                             }
                             _ => unreachable!(),
                         }
@@ -194,14 +195,13 @@ impl Player {
                                 // Broadcast block to other players
                                 if mode == 0x0 {
                                     // block destroyed
-                                    queue.push_back(packets::Queue::SetBlock {
+                                    queue.push_back(server::Queue::SetBlock {
                                         coords,
                                         block_type: 0x00,
                                     }); // air
                                 } else {
                                     // else place block which player held
-                                    queue
-                                        .push_back(packets::Queue::SetBlock { coords, block_type });
+                                    queue.push_back(server::Queue::SetBlock { coords, block_type });
                                 }
                             }
                             _ => unreachable!(),
@@ -275,7 +275,7 @@ impl Player {
     }
 
     pub fn disconnect(&mut self, reason: String) -> anyhow::Result<()> {
-        packets::kick(&mut self.stream, reason)?;
+        packets::kick(&mut self.stream, ServerPacket::Kick(reason))?;
         Ok(())
     }
 }
