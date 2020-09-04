@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::net::TcpListener;
 
+use crate::config::{Config, ServerCfg, SimulationCfg, WorldCfg};
 use crate::packets;
 use crate::Player;
 use crate::World;
@@ -16,6 +17,8 @@ pub enum Queue {
 }
 
 pub struct Server {
+    config: Config,
+
     // server specific
     pub running: bool,
     listener: TcpListener,
@@ -30,19 +33,31 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new() -> anyhow::Result<Self> {
-        let address = format!("127.0.0.1:80");
+    pub fn new(config: Config) -> anyhow::Result<Self> {
+        let address = config.server.ip;
         let listener = TcpListener::bind(address)?;
         listener.set_nonblocking(true)?;
 
         // Tested for now 1024x32x1024
         // TODO(nv): world type generation from config or load it from file
-        let world = World::new(64, 32, 64);
+        // TODO(nv): load from file
+        //let mut world: World;
+        let mut world = World::new(32, 32, 32);
+        if let WorldCfg::FlatMap {
+            width,
+            height,
+            length,
+        } = config.world
+        {
+            world = World::new(width, height, length);
+        }
 
+        let max_players = config.server.max_players;
         Ok(Server {
+            config,
             running: true,
             listener,
-            max_players: 1, // TODO(nv): move it out to config
+            max_players,
             queue: VecDeque::new(),
             players: vec![],
             world,
@@ -118,7 +133,7 @@ impl Server {
 
             // Tick player if he is alive
             if player.active {
-                match player.tick(&mut self.queue, &mut self.world) {
+                match player.tick(self.config.clone(), &mut self.queue, &mut self.world) {
                     Ok(_) => {}
                     Err(e) => {
                         println!("Player: {} - Err: {}", player.pid, e);
@@ -130,6 +145,10 @@ impl Server {
             } else {
                 // If not active then despawn for other players
                 self.queue.push_back(Queue::DespawnPlayer(player.pid));
+                self.queue.push_back(Queue::ChatMessage(format!(
+                    "&e{} left the game",
+                    player.name.clone()
+                )));
             }
         }
 

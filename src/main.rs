@@ -11,9 +11,13 @@ use player::Player;
 mod server;
 use server::Server;
 
+mod config;
+use config::Config;
+
 fn main() -> anyhow::Result<()> {
-    let mut clock = Clock::new(500);
-    let mut server = Server::new()?;
+    let config = Config::new()?; // TODO(nv): specify arg to config file for loading?
+    let mut clock = Clock::new(config.simulation.server_tick_rate as u128);
+    let mut server = Server::new(config)?;
 
     println!("Started server!");
 

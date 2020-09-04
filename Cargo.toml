@@ -7,3 +7,5 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.32"
 flate2 = "1.0.17"
+serde = { version = "1.0.115", features = ["derive"] }
+serde_yaml = "0.8.13"

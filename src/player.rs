@@ -1,3 +1,4 @@
+use crate::config;
 use crate::packets::{self, ClientPacket, ServerPacket};
 use crate::packets::{
     CLIENT_BLOCK, CS_IDENTIFICATION, CS_MESSAGE, CS_PING_PONG, CS_POSITION_ORIENTATION,
@@ -12,7 +13,7 @@ pub struct Player {
     pub active: bool,
 
     pub pid: i8,
-    name: String,
+    pub name: String,
     position: (i16, i16, i16),
     yaw: u8,
     pitch: u8,
@@ -37,6 +38,7 @@ impl Player {
 
     pub fn tick(
         &mut self,
+        config: config::Config,
         queue: &mut VecDeque<server::Queue>,
         world: &mut crate::World,
     ) -> anyhow::Result<()> {
@@ -99,7 +101,6 @@ impl Player {
                                 self.name.shrink_to_fit();
 
                                 // TODO(nv): authenticate with md5
-                                // TODO(nv): kick if server is full
 
                                 // TODO(nv): set operator type
                                 self.operator = 0x64;
@@ -112,6 +113,8 @@ impl Player {
                                     &mut writer,
                                     ServerPacket::ServerInfo {
                                         operator: self.operator,
+                                        name: config.server.name.clone(),
+                                        motd: config.server.motd.clone(),
                                     },
                                 )?;
 
@@ -132,8 +135,13 @@ impl Player {
                                     },
                                 )?;
 
-                                // Send to spawn queue
+                                // Send to spawn queue for other players
                                 queue.push_back(server::Queue::SpawnPlayer(self.pid));
+                                // also notify of new connection
+                                queue.push_back(server::Queue::ChatMessage(format!(
+                                    "&e{} joined the game",
+                                    self.name.clone()
+                                )));
                             }
                             _ => unreachable!(),
                         }

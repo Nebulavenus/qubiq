@@ -108,6 +108,8 @@ pub fn handle_position_and_orientation<R: Read>(reader: &mut R) -> anyhow::Resul
 pub enum ServerPacket<'a> {
     ServerInfo {
         operator: u8,
+        name: String,
+        motd: String,
     },
     SpawnPlayer {
         pid: i8,
@@ -144,11 +146,16 @@ pub enum ServerPacket<'a> {
 }
 
 pub fn server_info<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
-    if let ServerPacket::ServerInfo { operator } = data {
+    if let ServerPacket::ServerInfo {
+        operator,
+        name,
+        motd,
+    } = data
+    {
         write_byte(writer, CS_IDENTIFICATION)?;
         write_byte(writer, PROTOCOL_VERSION)?;
-        write_string(writer, format!("My Cool Server"))?;
-        write_string(writer, format!("Welcome To Server!"))?;
+        write_string(writer, name)?;
+        write_string(writer, motd)?;
         write_byte(writer, operator)?; // is player op(0x64) or not(0x0)
         writer.flush()?;
     }
