@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::net::TcpListener;
 
-use crate::config::{Config, ServerCfg, SimulationCfg, WorldCfg};
+use crate::config::{Config, WorldCfg};
 use crate::packets;
 use crate::Player;
 use crate::World;
@@ -39,17 +39,18 @@ impl Server {
         listener.set_nonblocking(true)?;
 
         // Tested for now 1024x32x1024
-        // TODO(nv): world type generation from config or load it from file
-        // TODO(nv): load from file
-        //let mut world: World;
-        let mut world = World::new(32, 32, 32);
-        if let WorldCfg::FlatMap {
-            width,
-            height,
-            length,
-        } = config.world
-        {
-            world = World::new(width, height, length);
+        let world: World;
+        match config.world {
+            WorldCfg::FromFile(ref path) => {
+                world = World::load_world(path)?;
+            }
+            WorldCfg::FlatMap {
+                width,
+                height,
+                length,
+            } => {
+                world = World::new(width, height, length);
+            }
         }
 
         let max_players = config.server.max_players;

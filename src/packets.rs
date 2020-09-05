@@ -310,7 +310,7 @@ fn read_sbyte<R: Read>(reader: &mut R) -> anyhow::Result<i8> {
     Ok(buf[0] as i8)
 }
 
-fn read_short<R: Read>(reader: &mut R) -> anyhow::Result<i16> {
+pub fn read_short<R: Read>(reader: &mut R) -> anyhow::Result<i16> {
     let mut buf = [0u8; 2];
     reader.read_exact(&mut buf)?;
     Ok(i16::from_be_bytes(buf))

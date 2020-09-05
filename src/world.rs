@@ -1,6 +1,7 @@
 use crate::packets::{self, ServerPacket};
-use flate2::write::GzEncoder;
-use std::io::Write;
+use flate2::{read, write};
+use std::io::{Read, Write};
+use std::path::Path;
 
 pub struct World {
     pub width: i16,
@@ -67,6 +68,39 @@ impl World {
         }
     }
 
+    pub fn load_world<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        let mut gzipper = read::GzDecoder::new(&bytes[..]);
+
+        let width = packets::read_short(&mut gzipper)?;
+        let height = packets::read_short(&mut gzipper)?;
+        let length = packets::read_short(&mut gzipper)?;
+
+        let mut blocks = Vec::new();
+        gzipper.read_to_end(&mut blocks)?;
+
+        Ok(World {
+            width,
+            height,
+            length,
+            blocks,
+        })
+    }
+
+    pub fn save_world<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<()> {
+        // Just custom format for now.
+        // TODO(nv): move to nbt for extended protocol in future
+        let mut gzipper = write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzipper.write(&self.width.to_be_bytes())?;
+        gzipper.write(&self.height.to_be_bytes())?;
+        gzipper.write(&self.length.to_be_bytes())?;
+        gzipper.write(&self.blocks)?;
+
+        std::fs::write(path, gzipper.finish()?)?;
+
+        Ok(())
+    }
+
     pub fn spawning_center(&mut self) -> (i16, i16, i16) {
         // Convert world coords to player's
         let world_x = ((self.width / 2) as f64 * 32.0) as i16;
@@ -76,7 +110,7 @@ impl World {
     }
 
     pub fn gzip_world(&mut self) -> anyhow::Result<Vec<u8>> {
-        let mut gzipper = GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut gzipper = write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         let world_size = self.width as i32 * self.height as i32 * self.length as i32;
         gzipper.write(&world_size.to_be_bytes())?; // world size
         gzipper.write(&self.blocks)?;
