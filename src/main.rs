@@ -14,7 +14,19 @@ use server::Server;
 mod config;
 use config::Config;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 fn main() -> anyhow::Result<()> {
+    // Ctrl-C handler
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    // Setup server specific stuff
     let config = Config::new()?; // TODO(nv): specify arg to config file for loading?
     let mut clock = Clock::new(config.simulation.server_tick_rate as u128);
     let mut server = Server::new(config)?;
@@ -23,7 +35,10 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         // Exit if not running
-        if !server.running {
+        if !running.load(Ordering::SeqCst) {
+            // TODO(nv): save map path config
+            server.world.save_world("maps/test.qb")?;
+            server.kick_players();
             break;
         }
 
@@ -37,6 +52,8 @@ fn main() -> anyhow::Result<()> {
         // Count ticks
         clock.finish_tick();
     }
+
+    println!("Server closed!");
 
     Ok(())
 }

@@ -20,7 +20,6 @@ pub struct Server {
     config: Config,
 
     // server specific
-    pub running: bool,
     listener: TcpListener,
     max_players: i8,
 
@@ -56,7 +55,6 @@ impl Server {
         let max_players = config.server.max_players;
         Ok(Server {
             config,
-            running: true,
             listener,
             max_players,
             queue: VecDeque::new(),
@@ -223,5 +221,15 @@ impl Server {
         }
 
         Ok(())
+    }
+
+    pub fn kick_players(&mut self) {
+        for player in self.players.iter_mut() {
+            // Stream may be closed already, only not to panic
+            match player.disconnect("Server closed!".to_string()) {
+                Ok(_) => {}
+                Err(_) => {}
+            }
+        }
     }
 }
