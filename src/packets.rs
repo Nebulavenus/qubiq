@@ -1,3 +1,4 @@
+use crate::util::*;
 use std::io::{Read, Write};
 
 pub const PROTOCOL_VERSION: u8 = 0x7;
@@ -42,8 +43,8 @@ pub enum ClientPacket {
 pub fn handle_player_identification<R: Read>(reader: &mut R) -> anyhow::Result<ClientPacket> {
     // Read identification
     let protocol_version = read_byte(reader)?;
-    let username = read_string(reader)?;
-    let verification_key = read_string(reader)?;
+    let username = read_mcstring(reader)?;
+    let verification_key = read_mcstring(reader)?;
     let unused = read_byte(reader)?;
     println!("Protocol version: {}", protocol_version);
     println!("Username: {}", username);
@@ -61,7 +62,7 @@ pub fn handle_player_identification<R: Read>(reader: &mut R) -> anyhow::Result<C
 pub fn handle_player_message<R: Read>(reader: &mut R) -> anyhow::Result<ClientPacket> {
     // Get message from client
     let _unused = read_byte(reader)?;
-    let message = read_string(reader)?;
+    let message = read_mcstring(reader)?;
 
     println!("Client message: {}", &message);
 
@@ -154,8 +155,8 @@ pub fn server_info<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Resu
     {
         write_byte(writer, CS_IDENTIFICATION)?;
         write_byte(writer, PROTOCOL_VERSION)?;
-        write_string(writer, name)?;
-        write_string(writer, motd)?;
+        write_mcstring(writer, name)?;
+        write_mcstring(writer, motd)?;
         write_byte(writer, operator)?; // is player op(0x64) or not(0x0)
         writer.flush()?;
     }
@@ -193,7 +194,7 @@ pub fn spawn_player<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Res
     {
         write_byte(writer, SERVER_SPAWN)?;
         write_sbyte(writer, pid)?;
-        write_string(writer, username)?;
+        write_mcstring(writer, username)?;
         write_short(writer, position.0)?;
         write_short(writer, position.1)?;
         write_short(writer, position.2)?;
@@ -282,7 +283,7 @@ pub fn ping<W: Write>(writer: &mut W) -> anyhow::Result<()> {
 pub fn kick<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow::Result<()> {
     if let ServerPacket::Kick(message) = data {
         write_byte(writer, SERVER_KICK)?;
-        write_string(writer, message)?;
+        write_mcstring(writer, message)?;
         writer.flush()?;
     }
     Ok(())
@@ -292,61 +293,8 @@ pub fn broadcast_message<W: Write>(writer: &mut W, data: ServerPacket) -> anyhow
     if let ServerPacket::Message(message) = data {
         write_byte(writer, CS_MESSAGE)?;
         write_sbyte(writer, 0)?;
-        write_string(writer, message)?;
+        write_mcstring(writer, message)?;
         writer.flush()?;
     }
-    Ok(())
-}
-
-pub fn read_byte<R: Read>(reader: &mut R) -> anyhow::Result<u8> {
-    let mut buf = [0u8];
-    reader.read_exact(&mut buf)?;
-    Ok(buf[0])
-}
-
-fn read_sbyte<R: Read>(reader: &mut R) -> anyhow::Result<i8> {
-    let mut buf = [0u8];
-    reader.read_exact(&mut buf)?;
-    Ok(buf[0] as i8)
-}
-
-pub fn read_short<R: Read>(reader: &mut R) -> anyhow::Result<i16> {
-    let mut buf = [0u8; 2];
-    reader.read_exact(&mut buf)?;
-    Ok(i16::from_be_bytes(buf))
-}
-
-fn read_string<R: Read>(reader: &mut R) -> anyhow::Result<String> {
-    let mut buf = [0u8; 64];
-    reader.read_exact(&mut buf)?;
-    let res = String::from_utf8_lossy(&buf);
-    Ok(res.into())
-}
-
-fn write_byte<W: Write>(writer: &mut W, val: u8) -> anyhow::Result<()> {
-    writer.write(&val.to_be_bytes())?;
-    Ok(())
-}
-
-fn write_sbyte<W: Write>(writer: &mut W, val: i8) -> anyhow::Result<()> {
-    writer.write(&val.to_be_bytes())?;
-    Ok(())
-}
-
-pub fn write_short<W: Write>(writer: &mut W, val: i16) -> anyhow::Result<()> {
-    writer.write(&val.to_be_bytes())?;
-    Ok(())
-}
-
-fn write_string<W: Write>(writer: &mut W, val: String) -> anyhow::Result<()> {
-    let mut buf = [0u8; 64];
-    let val_bytes = val.as_bytes();
-    let vb_len = val_bytes.len();
-    if vb_len > buf.len() {
-        buf.clone_from_slice(&val_bytes[..64]);
-    } else {
-        buf[..vb_len].clone_from_slice(&val_bytes);
-    }
-    writer.write(&buf)?;
     Ok(())
 }

@@ -4,6 +4,7 @@ use crate::packets::{
     CLIENT_BLOCK, CS_IDENTIFICATION, CS_MESSAGE, CS_PING_PONG, CS_POSITION_ORIENTATION,
 };
 use crate::server;
+use crate::util;
 use std::collections::VecDeque;
 use std::io::{BufReader, BufWriter};
 use std::net::TcpStream;
@@ -51,7 +52,7 @@ impl Player {
             // First try to read first opcode
             let mut packet_id = None;
             //match packets::read_byte(&mut self.stream) {
-            match packets::read_byte(&mut reader) {
+            match util::read_byte(&mut reader) {
                 Ok(v) => packet_id = Some(v),
                 Err(e) => {
                     match e.downcast::<std::io::Error>() {
@@ -122,14 +123,14 @@ impl Player {
                                 world.send_world(&mut writer)?;
 
                                 // Spawn authed player in the middle of the world
-                                let mut world_center = world.spawning_center();
-                                world_center.1 += 51;
+                                let mut world_point = world.spawning_point();
+                                world_point.1 += 51;
                                 packets::spawn_player(
                                     &mut writer,
                                     ServerPacket::SpawnPlayer {
                                         pid: -1, // always self
                                         username: self.name.clone(),
-                                        position: world_center,
+                                        position: world_point,
                                         yaw: self.yaw,
                                         pitch: self.pitch,
                                     },
@@ -237,7 +238,7 @@ impl Player {
             pitch: player.pitch,
         };
         if let Some(world) = world {
-            let mut world_center = world.spawning_center();
+            let mut world_center = world.spawning_point();
             world_center.1 += 51;
             if let ServerPacket::SpawnPlayer {
                 ref mut position, ..

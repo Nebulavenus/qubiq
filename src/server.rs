@@ -117,7 +117,7 @@ impl Server {
             };
         }
 
-        // Delete inactive players -- see line 68
+        // Delete inactive players -- lost connection
         self.players.retain(|p| p.active == true);
 
         // TODO(nv): Progress world & physics

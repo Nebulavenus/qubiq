@@ -58,7 +58,7 @@ impl Default for Config {
                     height: 32,
                     length: 64,
                 },
-                path: "maps/test.qb".to_string(),
+                path: "maps/test.cw".to_string(),
                 autosave: true,
             },
         }

@@ -1,6 +1,9 @@
+use crate::nbt::{self, NBT};
 use crate::packets::{self, ServerPacket};
-use flate2::{read, write};
-use std::io::{Read, Write};
+use flate2::{bufread, write};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
 pub struct World {
@@ -8,6 +11,8 @@ pub struct World {
     pub height: i16,
     pub length: i16,
     pub blocks: Vec<u8>,
+
+    spawn: (i16, i16, i16),
 }
 
 impl World {
@@ -19,6 +24,7 @@ impl World {
             height,
             length,
             blocks,
+            spawn: (width / 2, height / 2, length / 2),
         };
 
         // TODO(nv): make builder pattern
@@ -69,43 +75,124 @@ impl World {
     }
 
     pub fn load_world<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let bytes = std::fs::read(path)?;
-        let mut gzipper = read::GzDecoder::new(&bytes[..]);
+        // Load file
+        let f = File::open(path)?;
+        let r = BufReader::new(f);
+        let mut gz = bufread::GzDecoder::new(r);
+        let nbt = NBT::read(&mut gz).unwrap();
 
-        let width = packets::read_short(&mut gzipper)?;
-        let height = packets::read_short(&mut gzipper)?;
-        let length = packets::read_short(&mut gzipper)?;
-
+        // Parse nbt
+        let mut width = 1;
+        let mut height = 1;
+        let mut length = 1;
         let mut blocks = Vec::new();
-        gzipper.read_to_end(&mut blocks)?;
+        let mut spawn = (1i16, 1i16, 1i16);
+
+        if let nbt::Tag::Compound(v) = nbt.tag() {
+            for (key, tag) in v {
+                match key.as_str() {
+                    "X" => {
+                        if let nbt::Tag::Short(s) = tag {
+                            width = *s;
+                        }
+                    }
+                    "Y" => {
+                        if let nbt::Tag::Short(s) = tag {
+                            height = *s;
+                        }
+                    }
+                    "Z" => {
+                        if let nbt::Tag::Short(s) = tag {
+                            length = *s;
+                        }
+                    }
+                    "BlockArray" => {
+                        if let nbt::Tag::ByteArray(b) = tag {
+                            blocks = b.iter().map(|by| *by as u8).collect();
+                        }
+                    }
+                    "Spawn" => {
+                        if let nbt::Tag::Compound(sv) = tag {
+                            for (skey, stag) in sv {
+                                match skey.as_str() {
+                                    "X" => {
+                                        if let nbt::Tag::Short(s) = stag {
+                                            spawn.0 = *s;
+                                        }
+                                    }
+                                    "Y" => {
+                                        if let nbt::Tag::Short(s) = stag {
+                                            spawn.1 = *s;
+                                        }
+                                    }
+                                    "Z" => {
+                                        if let nbt::Tag::Short(s) = stag {
+                                            spawn.2 = *s;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("Name: {} - Tag: {:?}", key, tag);
+                    }
+                }
+            }
+        }
+
+        // TODO(nv): check socket code in classicube
+        // 256 - 64 - 256 only half of the world is sent
+        // 128 - 64 - 128 works fine
 
         Ok(World {
             width,
             height,
             length,
             blocks,
+            spawn,
         })
     }
 
     pub fn save_world<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<()> {
-        // Just custom format for now.
-        // TODO(nv): move to nbt for extended protocol in future
-        let mut gzipper = write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gzipper.write(&self.width.to_be_bytes())?;
-        gzipper.write(&self.height.to_be_bytes())?;
-        gzipper.write(&self.length.to_be_bytes())?;
-        gzipper.write(&self.blocks)?;
+        // Create file
+        let f = File::create(path)?;
+        let w = BufWriter::new(f);
+        let mut gz = write::GzEncoder::new(w, Default::default());
 
-        std::fs::write(path, gzipper.finish()?)?;
+        // TODO(nv): probably reuse loaded nbt from cw file -- save inside world
 
+        // Create nbt
+        let mut m = HashMap::<String, nbt::Tag>::new();
+        m.insert("FormatVersion".into(), nbt::Tag::Byte(1));
+        m.insert("X".into(), nbt::Tag::Short(self.width));
+        m.insert("Y".into(), nbt::Tag::Short(self.height));
+        m.insert("Z".into(), nbt::Tag::Short(self.length));
+        m.insert(
+            "BlockArray".into(),
+            nbt::Tag::ByteArray(self.blocks.iter().map(|b| *b as i8).collect()),
+        );
+
+        let mut sm = HashMap::<String, nbt::Tag>::new();
+        sm.insert("X".into(), nbt::Tag::Short(self.spawn.0));
+        sm.insert("Y".into(), nbt::Tag::Short(self.spawn.1));
+        sm.insert("Z".into(), nbt::Tag::Short(self.spawn.2));
+
+        m.insert("Spawn".into(), nbt::Tag::Compound(sm));
+
+        let nbt = NBT::new("ClassicWorld", nbt::Tag::Compound(m));
+
+        // Write into file
+        nbt.write(&mut gz)?;
         Ok(())
     }
 
-    pub fn spawning_center(&mut self) -> (i16, i16, i16) {
+    pub fn spawning_point(&mut self) -> (i16, i16, i16) {
         // Convert world coords to player's
-        let world_x = ((self.width / 2) as f64 * 32.0) as i16;
-        let world_y = ((self.height / 2) as f64 * 32.0) as i16;
-        let world_z = ((self.length / 2) as f64 * 32.0) as i16;
+        let world_x = (self.spawn.0 as f64 * 32.0) as i16;
+        let world_y = (self.spawn.1 as f64 * 32.0) as i16;
+        let world_z = (self.spawn.2 as f64 * 32.0) as i16;
         (world_x, world_y, world_z)
     }
 
