@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::net::TcpListener;
 
-use crate::config::{Config, WorldCfg};
+use crate::config::{Config, WorldGenCfg};
 use crate::packets;
 use crate::Player;
 use crate::World;
@@ -39,11 +39,11 @@ impl Server {
 
         // Tested for now 1024x32x1024
         let world: World;
-        match config.world {
-            WorldCfg::FromFile(ref path) => {
+        match config.world.gen {
+            WorldGenCfg::FromFile(ref path) => {
                 world = World::load_world(path)?;
             }
-            WorldCfg::FlatMap {
+            WorldGenCfg::FlatMap {
                 width,
                 height,
                 length,

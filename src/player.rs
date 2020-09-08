@@ -196,8 +196,6 @@ impl Player {
 
                                 // TODO(nv): check if block is valid (loop through all known blocks u8)
 
-                                world.set_block(coords.0, coords.1, coords.2, block_type);
-
                                 // TODO(nv): if not valid send to air 0x0, also check world.set_block
 
                                 // Broadcast block to other players
@@ -205,11 +203,15 @@ impl Player {
                                     // block destroyed
                                     queue.push_back(server::Queue::SetBlock {
                                         coords,
-                                        block_type: 0x00,
-                                    }); // air
+                                        block_type: 0x00, // air
+                                    });
+
+                                    world.set_block(coords.0, coords.1, coords.2, 0x00);
                                 } else {
                                     // else place block which player held
                                     queue.push_back(server::Queue::SetBlock { coords, block_type });
+
+                                    world.set_block(coords.0, coords.1, coords.2, block_type);
                                 }
                             }
                             _ => unreachable!(),

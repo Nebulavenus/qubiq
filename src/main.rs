@@ -29,15 +29,16 @@ fn main() -> anyhow::Result<()> {
     // Setup server specific stuff
     let config = Config::new()?; // TODO(nv): specify arg to config file for loading?
     let mut clock = Clock::new(config.simulation.server_tick_rate as u128);
-    let mut server = Server::new(config)?;
+    let mut server = Server::new(config.clone())?;
 
     println!("Started server!");
 
     loop {
         // Exit if not running
         if !running.load(Ordering::SeqCst) {
-            // TODO(nv): save map path config
-            server.world.save_world("maps/test.qb")?;
+            if config.world.autosave {
+                server.world.save_world(config.world.path.clone())?;
+            }
             server.kick_players();
             break;
         }

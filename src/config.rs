@@ -23,7 +23,14 @@ pub struct SimulationCfg {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub enum WorldCfg {
+pub struct WorldCfg {
+    pub gen: WorldGenCfg,
+    pub path: String,
+    pub autosave: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum WorldGenCfg {
     FromFile(String),
     FlatMap {
         width: i16,
@@ -45,10 +52,14 @@ impl Default for Config {
                 server_tick_rate: 50,
                 sand_tick_rate: 20,
             },
-            world: WorldCfg::FlatMap {
-                width: 64,
-                height: 32,
-                length: 64,
+            world: WorldCfg {
+                gen: WorldGenCfg::FlatMap {
+                    width: 64,
+                    height: 32,
+                    length: 64,
+                },
+                path: "maps/test.qb".to_string(),
+                autosave: true,
             },
         }
     }
